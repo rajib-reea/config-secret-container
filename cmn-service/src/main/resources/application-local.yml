@@ -1,0 +1,42 @@
+# ============================================================
+# local - a developer's machine.
+#
+# OpenBao is optional. If it is not running, the service still starts on
+# bundled defaults so that unrelated work is not blocked by a sealed or
+# absent secret store.
+#
+#   cd openbao && ./bao-up.sh --migrate
+#   export BAO_TOKEN="$(cd openbao && ./bao-token.sh)"
+#   mvn spring-boot:run -Dspring-boot.run.profiles=local
+# ============================================================
+
+spring:
+  config:
+    # optional: prefix -> a missing or unreachable OpenBao is not fatal here.
+    import:
+      - optional:vault://cmn/config/local
+      - optional:vault://cmn/secret/local
+      # The migration writes dev documents by default, so fall back to those
+      # rather than forcing every developer to populate a local/ pair.
+      - optional:vault://cmn/config/dev
+      - optional:vault://cmn/secret/dev
+
+  cloud:
+    vault:
+      uri: http://localhost:8200
+      token: ${BAO_TOKEN:}
+      fail-fast: false
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,env,configprops
+
+logging:
+  level:
+    com.cmn.service: DEBUG
+    org.springframework.vault: DEBUG

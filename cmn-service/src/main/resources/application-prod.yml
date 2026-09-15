@@ -1,0 +1,46 @@
+# ============================================================
+# prod.
+#
+# Secrets are mandatory and the store must be reachable at startup.
+#
+# The root token must never be used here. Give the service its own identity
+# with a least-privilege policy - AppRole is shown below; Kubernetes or JWT
+# auth are equally appropriate depending on where this runs.
+# ============================================================
+
+spring:
+  config:
+    import:
+      - vault://cmn/config/prod
+      - vault://cmn/secret/prod
+
+  cloud:
+    vault:
+      uri: ${BAO_ADDR:https://openbao.internal:8200}
+      fail-fast: true
+
+      # TOKEN authentication is a development convenience. In production the
+      # service authenticates as itself:
+      authentication: APPROLE
+      app-role:
+        role-id: ${BAO_ROLE_ID}
+        secret-id: ${BAO_SECRET_ID}
+        role: cmn-service
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: WARN
+    com.cmn.service: INFO

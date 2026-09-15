@@ -1,0 +1,74 @@
+# ============================================================
+# Base configuration - shared by every profile.
+#
+# No environment profile is active by default. Environment.fromActiveProfiles
+# fails fast if exactly one of local/dev/staging/prod is not set, so an
+# instance can never start without knowing which environment it is.
+#
+#   java -jar cmn-service.jar --spring.profiles.active=local
+#   SPRING_PROFILES_ACTIVE=dev java -jar cmn-service.jar
+# ============================================================
+
+spring:
+  application:
+    name: cmn-service
+
+  main:
+    banner-mode: off
+
+  cloud:
+    vault:
+      # OpenBao is API-compatible with Vault, so the Vault client talks to it
+      # unchanged. Per-environment overrides live in the profile files below.
+      enabled: true
+      authentication: TOKEN
+      kv:
+        enabled: true
+        backend: cmn
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    vault:
+      # Disabled deliberately - this is an OpenBao/Vault incompatibility, not a
+      # preference.
+      #
+      # Spring Vault's VaultHealthImpl maps "performance_standby" to a primitive
+      # boolean. That field is Vault Enterprise-only and OpenBao omits it from
+      # /v1/sys/health entirely, so Jackson fails with:
+      #
+      #   Cannot map `null` into type `boolean`
+      #     (through reference chain: VaultHealthImpl["performance_standby"])
+      #
+      # The result is a permanently DOWN health endpoint on an otherwise healthy
+      # service. Only the health indicator is affected - reading configuration
+      # and secrets from OpenBao works normally.
+      #
+      # OpenBao's own liveness is checked by the container healthcheck in
+      # openbao/docker-compose.yaml.
+      enabled: false
+
+cmn:
+  inspection:
+    # Values from OpenBao are always reported. These prefixes additionally
+    # surface the service's own settings, so the endpoint is useful even when
+    # OpenBao supplied nothing.
+    include-prefixes:
+      - cmn.
+      - spring.application.
+
+logging:
+  level:
+    root: INFO
+    com.cmn.service: INFO
