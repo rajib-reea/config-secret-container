@@ -70,206 +70,113 @@ http://localhost:8200/ui/
 
 # Repository Structure
 
+Everything OpenBao lives under `openbao/`. `.env` stays at the root because it
+is the project's configuration, not OpenBao's.
+
 ```text
 config-secret-container/
 │
-├── openbao/
-│   └── config/
-│       └── openbao.hcl
+├── .env                        source config, migrated into OpenBao
+├── .gitattributes
+├── .gitignore
+├── README.md
 │
-├── .env
-├── docker-compose.yaml
-├── bao-cli.sh
-├── env-to-bao.sh
-├── consideration.md
-└── README.md
+└── openbao/
+    ├── docker-compose.yaml
+    ├── consideration.md
+    ├── bao-up.sh
+    ├── bao-cli.sh
+    ├── bao-token.sh
+    ├── env-to-bao.sh
+    ├── .openbao-keys.json      created on first run, git-ignored
+    └── config/
+        └── openbao.hcl
 ```
 
-| File                         | Purpose                                               |
-| ---------------------------- | ----------------------------------------------------- |
-| `docker-compose.yaml`        | Starts OpenBao                                        |
-| `openbao/config/openbao.hcl` | OpenBao server configuration                          |
-| `bao-cli.sh`                 | OpenBao CLI convenience wrapper                       |
-| `env-to-bao.sh`              | Migrates environment values into OpenBao              |
-| `consideration.md`           | Detailed setup, troubleshooting and verified solution |
-| `.env`                       | Local/demo environment variables                      |
-| `README.md`                  | Project overview and quick-start guide                |
+| Path                          | Purpose                                            |
+| ----------------------------- | -------------------------------------------------- |
+| `openbao/bao-up.sh`           | Start, initialise, unseal, optionally migrate      |
+| `openbao/bao-token.sh`        | Read the root token and unseal keys                |
+| `openbao/bao-cli.sh`          | Run any `bao` command inside the container         |
+| `openbao/env-to-bao.sh`       | Migrate `.env` into KV v2                          |
+| `openbao/docker-compose.yaml` | Starts OpenBao                                     |
+| `openbao/config/openbao.hcl`  | OpenBao server configuration                       |
+| `openbao/consideration.md`    | Full setup, troubleshooting and verified procedure |
+| `.env`                        | Local/demo environment variables                   |
+| `README.md`                   | Project overview and quick start                   |
 
 ---
 
 # Detailed Setup
 
-The complete verified installation and troubleshooting procedure is maintained in:
+The complete verified installation and troubleshooting procedure is maintained
+in [`openbao/consideration.md`](./openbao/consideration.md).
 
-## [`consideration.md`](./consideration.md)
-
-It covers:
-
-* Docker Compose startup
-* OpenBao initialization
-* Unseal
-* Status verification
-* Docker volume permissions
-* `/openbao/data` ownership problems
-* KV v2 setup
-* `cmn` secret engine structure
-* Configuration and secret paths
-* `.env` migration
-* CLI usage
-* Windows/WSL2 CRLF problems
-* Troubleshooting
-* Security considerations
-
-**For the complete setup procedure, see [`consideration.md`](./consideration.md).**
+It covers initialisation, sealing and restarts, token retrieval, the Web UI,
+the `cmn` secret structure, `.env` migration, CLI usage, Windows/WSL2 notes,
+troubleshooting and security considerations.
 
 ---
 
 # Quick Start
 
-## 1. Start OpenBao
+```bash
+cd openbao
+./bao-up.sh --migrate
+```
+
+That is the whole setup. It starts the container, initialises on first run,
+saves the unseal keys and root token to `openbao/.openbao-keys.json`
+(git-ignored), unseals, and migrates `.env` into OpenBao. It is safe to re-run.
+
+When it finishes it prints the UI address and the root token:
+
+```text
+==> Ready
+Initialized     true
+Sealed          false
+
+  UI        : http://localhost:8200/ui/
+  Method    : Token
+  Token     : s.xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+> **Back up `openbao/.openbao-keys.json`.** It holds the only copy of the
+> unseal keys and the root token. Without it the data volume cannot be opened.
+
+## Everyday use
 
 ```bash
+cd openbao
+
+./bao-up.sh            # start and unseal (after a reboot or restart)
+./bao-up.sh --status   # show state without changing anything
+./bao-token.sh         # print the root token
+```
+
+OpenBao re-seals on every container restart. `./bao-up.sh` detects this and
+unseals for you — there is no need to initialise again.
+
+## Manual startup
+
+```bash
+cd openbao
+
 docker compose up -d
-```
-
-Check the container:
-
-```bash
 docker compose ps
-```
-
-View logs:
-
-```bash
 docker compose logs -f openbao
 ```
 
----
+The full manual initialise/unseal sequence is in
+[`openbao/consideration.md`](./openbao/consideration.md#9-doing-it-manually).
 
-# 2. Initialize OpenBao
+> There is no `bao secrets enable` step. `env-to-bao.sh` creates the `cmn`
+> KV v2 mount itself and skips creation when it already exists.
 
-For a new OpenBao data volume:
-
-```bash
-docker exec \
-  -e BAO_ADDR=http://127.0.0.1:8200 \
-  -it openbao \
-  bao operator init
-```
-
-Store the generated:
-
-* Unseal keys
-* Root token
-
-securely.
-
-**Never commit them to Git.**
-
----
-
-# 3. Fix Initialization Permission Problems
-
-If initialization fails with:
-
-```text
-failed to persist keyring:
-mkdir /openbao/data/core: permission denied
-```
-
-fix the data directory ownership:
-
-```bash
-docker exec -u 0 openbao \
-  chown -R openbao:openbao /openbao/data
-```
-
-Then run initialization again:
-
-```bash
-docker exec \
-  -e BAO_ADDR=http://127.0.0.1:8200 \
-  -it openbao \
-  bao operator init
-```
-
-The explanation of this issue is documented in [`consideration.md`](./consideration.md).
-
----
-
-# 4. Unseal OpenBao
-
-Run:
-
-```bash
-docker exec \
-  -e BAO_ADDR=http://127.0.0.1:8200 \
-  -it openbao \
-  bao operator unseal
-```
-
-Provide the required number of different unseal keys.
-
-Check status:
-
-```bash
-docker exec \
-  -e BAO_ADDR=http://127.0.0.1:8200 \
-  -it openbao \
-  bao status
-```
-
-Expected:
-
-```text
-Initialized: true
-Sealed:      false
-```
-
----
-
-# OpenBao Secret Engine
-
-## 5. Create the `cmn` KV v2 Mount
-
-The CMN platform uses a dedicated KV v2 mount:
-
-```text
-cmn/
-```
-
-Enable it once:
-
-```bash
-export BAO_ADDR=http://127.0.0.1:8200
-export BAO_TOKEN='YOUR_OPENBAO_TOKEN'
-```
-
-Then:
-
-```bash
-docker exec \
-  -e BAO_ADDR="$BAO_ADDR" \
-  -e BAO_TOKEN="$BAO_TOKEN" \
-  openbao \
-  bao secrets enable -path=cmn kv-v2
-```
-
-Verify:
-
-```bash
-docker exec \
-  -e BAO_ADDR="$BAO_ADDR" \
-  -e BAO_TOKEN="$BAO_TOKEN" \
-  openbao \
-  bao secrets list
-```
-
-The result should contain:
-
-```text
-cmn/
-```
+> There is no ownership fix either. Storage lives at `/openbao/file`, the path
+> the image declares as a volume, so it is owned by `openbao` from the start.
+> The older `chown -R openbao:openbao /openbao/data` workaround is no longer
+> needed.
 
 ---
 
@@ -373,6 +280,13 @@ cmn/secret/prod
 
 # CLI Examples
 
+All script invocations below run from the `openbao/` directory:
+
+```bash
+cd openbao
+export BAO_TOKEN="$(./bao-token.sh)"
+```
+
 ## List the `cmn` mount
 
 ```bash
@@ -457,8 +371,10 @@ The migration model is:
 Set:
 
 ```bash
+cd openbao
+
 export PROJECT_NAME=cmn
-export BAO_TOKEN='YOUR_OPENBAO_TOKEN'
+export BAO_TOKEN="$(./bao-token.sh)"
 ```
 
 Then:
@@ -466,6 +382,13 @@ Then:
 ```bash
 ./env-to-bao.sh
 ```
+
+The script reads `../.env` by default. Override with `ENV_FILE=...`.
+
+> Always set `PROJECT_NAME` when calling `env-to-bao.sh` directly. Its fallback
+> is the repository folder name, which would create a mount called
+> `config-secret-container/` instead of `cmn/`. `./bao-up.sh --migrate` passes
+> `cmn` for you.
 
 The script determines the active Spring profile and separates configuration values from sensitive values.
 
@@ -508,14 +431,16 @@ If a shell script was edited on Windows, it may contain CRLF line endings.
 Normalize the script:
 
 ```bash
-sed -i 's/\r$//' env-to-bao.sh
+sed -i 's/\r$//' openbao/*.sh
 ```
 
-Make it executable:
+Make them executable:
 
 ```bash
-chmod +x env-to-bao.sh
+chmod +x openbao/*.sh
 ```
+
+`.gitattributes` pins `*.sh` to LF, so a fresh clone will not reintroduce CRLF.
 
 Verify:
 
@@ -590,22 +515,22 @@ Get secrets:
 To completely reset the local OpenBao instance:
 
 ```bash
+cd openbao
+
 docker compose down
 docker volume rm openbao-data
-docker compose up
+rm -f .openbao-keys.json
+
+./bao-up.sh --migrate
 ```
 
-Then repeat:
-
-1. Permission fix, if required
-2. Initialization
-3. Unseal
-4. KV v2 mount creation
-5. Configuration/secret migration
+`bao-up.sh` handles initialisation, unsealing, mount creation and migration.
+There is no separate permission fix — see
+[Repository Structure](#repository-structure) for why.
 
 > Removing `openbao-data` permanently removes the local OpenBao data.
 
-See [`consideration.md`](./consideration.md) for the complete reset and recovery procedure.
+See [`openbao/consideration.md`](./openbao/consideration.md) for the complete reset and recovery procedure.
 
 ---
 
@@ -670,7 +595,7 @@ A production deployment should additionally consider:
 | Document                                 | Purpose                                                                    |
 | ---------------------------------------- | -------------------------------------------------------------------------- |
 | [`README.md`](./README.md)               | Project overview and quick start                                           |
-| [`consideration.md`](./consideration.md) | Detailed verified setup, troubleshooting and implementation considerations |
+| [`openbao/consideration.md`](./openbao/consideration.md) | Detailed verified setup, troubleshooting and implementation considerations |
 
 ## Recommended Flow
 
@@ -721,5 +646,5 @@ cmn/secret/dev
 
 For the detailed, verified setup and troubleshooting procedure, see:
 
-**[`consideration.md`](./consideration.md)**
+**[`openbao/consideration.md`](./openbao/consideration.md)**
 

@@ -27,11 +27,18 @@ set -euo pipefail
 # ------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env}"
+
+# This script lives in <repo>/openbao/ while .env sits at the repo root,
+# so look one level up. Override with ENV_FILE=... for a different source.
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 
 BAO_ADDR="${BAO_ADDR:-http://127.0.0.1:8200}"
 
-PROJECT_NAME="${PROJECT_NAME:-$(basename "$SCRIPT_DIR")}"
+# Named after the project, not this folder - otherwise the KV mount would
+# be called "openbao" rather than the project it holds secrets for.
+PROJECT_NAME="${PROJECT_NAME:-$(basename "$REPO_ROOT")}"
 
 
 # ------------------------------------------------------------

@@ -7,6 +7,12 @@ Verified against **OpenBao 2.6.2**.
 
 ---
 
+> Everything in this document runs from the `openbao/` directory:
+>
+> ```bash
+> cd openbao
+> ```
+
 ## Quick start
 
 ```bash
@@ -65,15 +71,46 @@ Everyday use afterwards:
 
 ## 1. What the setup looks like
 
+Everything OpenBao lives in one folder; `.env` stays at the repository root
+because it is the project's configuration, not OpenBao's:
+
+```text
+config-secret-container/
+│
+├── .env                      source config, migrated into OpenBao
+├── .gitignore
+├── .gitattributes
+├── README.md
+│
+└── openbao/                  <- everything in this document
+    ├── docker-compose.yaml
+    ├── consideration.md      this file
+    ├── bao-up.sh
+    ├── bao-cli.sh
+    ├── bao-token.sh
+    ├── env-to-bao.sh
+    ├── .openbao-keys.json    created on first run, git-ignored
+    └── config/
+        └── openbao.hcl
+```
+
 A single container, one published port, one named volume:
 
 ```text
 openbao/openbao:2.6
 │
-├── port      8200          API + UI
-├── volume    openbao-data  ->  /openbao/file   (file storage)
-└── config    ./openbao/config/openbao.hcl  ->  /openbao/config  (read-only)
+├── port      8200               API + UI
+├── volume    openbao-data   ->  /openbao/file    (file storage)
+└── config    ./config/openbao.hcl  ->  /openbao/config  (read-only)
 ```
+
+The Compose project name is pinned to `openbao` in `docker-compose.yaml`, so
+it does not change with the directory the file sits in. The volume is named
+explicitly (`openbao-data`), which is why moving these files did not disturb
+the stored secrets.
+
+`env-to-bao.sh` reads `../.env` by default. Override with `ENV_FILE=...` to
+migrate a different file.
 
 After migration the secret tree is:
 
@@ -360,6 +397,8 @@ export BAO_TOKEN="$(./bao-token.sh)"
 This destroys every secret in the volume:
 
 ```bash
+cd openbao
+
 docker compose down
 docker volume rm openbao-data
 rm -f .openbao-keys.json
@@ -378,6 +417,8 @@ writing the new one.
 `bao-up.sh` exists so you do not have to, but the underlying sequence is:
 
 ```bash
+cd openbao
+
 # Start
 docker compose up -d
 
@@ -406,6 +447,10 @@ export PROJECT_NAME=cmn
 There is no `bao secrets enable` step: `env-to-bao.sh` creates the
 `$PROJECT_NAME` KV v2 mount itself, and skips creation when it already exists.
 Manually enabling a `secret/` mount produces an orphan that nothing uses.
+
+> **Set `PROJECT_NAME` when calling `env-to-bao.sh` directly.** `bao-up.sh`
+> passes `cmn`, but the script's own fallback is the repository folder name,
+> which would create a mount called `config-secret-container/` instead.
 
 ---
 
