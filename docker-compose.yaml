@@ -6,22 +6,35 @@ services:
 
     ports:
       - "8200:8200"
-      
+
     environment:
       BAO_ADDR: "http://127.0.0.1:8200"
+      # The data volume already inherits openbao:openbao ownership and the
+      # config mount is read-only, so the entrypoint's chown pass has nothing
+      # to do. Skipping it silences harmless "Operation not permitted" /
+      # "Read-only file system" warnings on Windows bind mounts.
+      SKIP_CHOWN: "true"
 
     cap_add:
       - IPC_LOCK
 
     volumes:
-      - openbao_data:/openbao/data
-      - ./openbao/config:/openbao/config
+      # Mounted at /openbao/file - the path the image declares as a VOLUME.
+      # Named volumes initialised from an existing image directory inherit
+      # its ownership (openbao:openbao), so no chown step is required.
+      - openbao_data:/openbao/file
+      - ./openbao/config:/openbao/config:ro
 
+    # The image entrypoint already passes -config=/openbao/config, so the
+    # directory is loaded automatically. Passing the file again as well is
+    # what produced "ignoring duplicate configuration found in directory".
     command:
       - server
-      - -config=/openbao/config/openbao.hcl
 
     healthcheck:
+      # sealedcode/uninitcode keep the container "healthy" while OpenBao is
+      # sealed or not yet initialised - both are normal states, not failures.
+      # Without them the container reports unhealthy after every restart.
       test:
         [
           "CMD",
@@ -29,11 +42,11 @@ services:
           "--no-verbose",
           "--tries=1",
           "--spider",
-          "http://127.0.0.1:8200/v1/sys/health"
+          "http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200"
         ]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
       start_period: 10s
 
 volumes:

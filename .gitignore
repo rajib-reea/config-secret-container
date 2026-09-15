@@ -1,0 +1,55 @@
+# ------------------------------------------------------------
+# Environment files
+# ------------------------------------------------------------
+# NOTE: .env is currently tracked as a public demo file containing
+# deliberately fake values. Listing it here does not untrack it.
+# To untrack:  git mv .env .env.example && cp .env.example .env
+
+.env
+.env.*
+!.env.example
+
+# ------------------------------------------------------------
+# OpenBao credentials - NEVER commit these
+# ------------------------------------------------------------
+
+.openbao-keys.json
+.openbao-keys.json.*.bak
+bao-init.json
+*unseal*
+*root-token*
+*.token
+
+# ------------------------------------------------------------
+# Keys and certificates
+# ------------------------------------------------------------
+
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+
+# ------------------------------------------------------------
+# Secret directories
+# ------------------------------------------------------------
+
+secrets/
+credentials/
+
+# ------------------------------------------------------------
+# Local OpenBao data (if ever bind-mounted instead of a volume)
+# ------------------------------------------------------------
+
+openbao/data/
+openbao/logs/
+
+# ------------------------------------------------------------
+# Editor / OS
+# ------------------------------------------------------------
+
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
