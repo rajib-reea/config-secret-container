@@ -1,22 +1,41 @@
 # ============================================================
-# Common configuration + OpenBao wiring.
+# Common configuration + Vault wiring.
 #
 # There are only two files in this directory:
 #
-#   application.yml         this file - shared settings and how to reach OpenBao
+#   application.yml         this file - shared settings and how to reach Vault
 #   application-local.yml   developer-machine overrides
 #
 # There is deliberately NO application-dev.yml / -staging.yml / -prod.yml.
-# Everything environment-specific lives in OpenBao, under:
+# Everything environment-specific lives in the secret store, under:
 #
 #   cmn/config/<profile>    non-secret configuration
 #   cmn/secret/<profile>    secrets
 #
 # The paths are resolved from the active profile by Spring Cloud Vault itself
 # (see spring.cloud.vault.kv below), so adding an environment means writing
-# two documents to OpenBao - not adding a file here.
+# two documents to the store - not adding a file here.
 #
 #   cd openbao && PROFILE=staging ./env-to-bao.sh
+#
+# ------------------------------------------------------------
+# OpenBao or HashiCorp Vault
+# ------------------------------------------------------------
+#
+# The local stack runs OpenBao, which implements the HashiCorp Vault API.
+# Outside local, this service does not care which one it is talking to and is
+# configured entirely with standard Vault conventions:
+#
+#   VAULT_ADDR        VAULT_TOKEN        VAULT_NAMESPACE
+#   VAULT_ROLE_ID     VAULT_SECRET_ID
+#
+# Point VAULT_ADDR at a real Vault cluster and nothing else changes. The
+# BAO_* names are accepted as fallbacks so the local scripts in openbao/ keep
+# working unchanged.
+#
+# The one place the two genuinely differ is the health indicator - see
+# management.health.vault below.
+# ------------------------------------------------------------
 #
 # An environment profile is mandatory. Environment.fromActiveProfiles refuses
 # to resolve unless exactly one of local/dev/staging/prod is active, so an
@@ -41,28 +60,33 @@ spring:
 
   cloud:
     vault:
-      # OpenBao is API-compatible with Vault, so the Vault client talks to it
-      # unchanged.
       enabled: true
-      uri: ${BAO_ADDR:http://localhost:8200}
 
-      # TOKEN for development, APPROLE for anything real. Switch with
-      # BAO_AUTH=APPROLE and supply BAO_ROLE_ID / BAO_SECRET_ID:
-      #     cd openbao && ./bao-approle.sh prod
-      authentication: ${BAO_AUTH:TOKEN}
-      token: ${BAO_TOKEN:}
+      # Standard Vault variable first, BAO_ADDR as a local fallback.
+      # Use https:// for anything that is not a developer machine.
+      uri: ${VAULT_ADDR:${BAO_ADDR:http://localhost:8200}}
+
+      # Vault Enterprise / HCP namespaces. Empty for OpenBao, which has no
+      # namespace concept, and empty for Vault OSS.
+      namespace: ${VAULT_NAMESPACE:}
+
+      # TOKEN for development, APPROLE for anything real.
+      #   OpenBao:  cd openbao && ./bao-approle.sh prod
+      #   Vault:    vault write auth/approle/role/cmn-service ...
+      authentication: ${VAULT_AUTH:${BAO_AUTH:TOKEN}}
+      token: ${VAULT_TOKEN:${BAO_TOKEN:}}
 
       app-role:
-        role-id: ${BAO_ROLE_ID:}
-        secret-id: ${BAO_SECRET_ID:}
+        role-id: ${VAULT_ROLE_ID:${BAO_ROLE_ID:}}
+        secret-id: ${VAULT_SECRET_ID:${BAO_SECRET_ID:}}
 
-      # An unreachable or sealed OpenBao is fatal everywhere except local,
+      # An unreachable or sealed store is fatal everywhere except local,
       # which overrides this to false.
-      fail-fast: ${BAO_FAIL_FAST:true}
+      fail-fast: ${VAULT_FAIL_FAST:${BAO_FAIL_FAST:true}}
 
       kv:
         enabled: true
-        backend: cmn
+        backend: ${VAULT_KV_BACKEND:cmn}
 
         # These four settings are what make the layout profile-driven.
         # Spring Cloud Vault reads, for each active profile:
@@ -73,6 +97,11 @@ spring:
         #   cmn/secret/<profile>  application-name + separator + profile
         #
         # which is exactly the structure env-to-bao.sh writes.
+        #
+        # NOTE: a least-privilege policy must grant read on the two
+        # profile-less paths as well. With permission they return 404 and are
+        # ignored; without it they return 403 and fail-fast turns that into a
+        # startup failure. See openbao/bao-approle.sh.
         default-context: config
         application-name: secret
         profile-separator: '/'
@@ -92,36 +121,37 @@ management:
         enabled: true
   health:
     vault:
-      # Disabled deliberately - this is an OpenBao/Vault incompatibility, not a
-      # preference.
+      # Off by default because the local stack is OpenBao.
       #
-      # Spring Vault's VaultHealthImpl maps "performance_standby" to a primitive
-      # boolean. That field is Vault Enterprise-only and OpenBao omits it from
-      # /v1/sys/health entirely, so Jackson fails with:
+      # Spring Vault's VaultHealthImpl maps "performance_standby" to a
+      # primitive boolean. That field is Vault Enterprise-only: OpenBao omits
+      # it from /v1/sys/health entirely, and Jackson then fails with
       #
       #   Cannot map `null` into type `boolean`
       #     (through reference chain: VaultHealthImpl["performance_standby"])
       #
-      # The result is a permanently DOWN health endpoint on an otherwise healthy
-      # service. Only the health indicator is affected - reading configuration
-      # and secrets from OpenBao works normally.
+      # leaving /actuator/health permanently DOWN on an otherwise healthy
+      # service. Only the indicator is affected; reading configuration and
+      # secrets works normally.
       #
-      # OpenBao's own liveness is checked by the container healthcheck in
-      # openbao/docker-compose.yaml.
-      enabled: false
+      # Against HashiCorp Vault Enterprise the field is present and the
+      # indicator works, so turn it on there:
+      #
+      #   VAULT_HEALTH_ENABLED=true
+      enabled: ${VAULT_HEALTH_ENABLED:false}
 
 cmn:
   inspection:
-    # Values from OpenBao are always reported. These prefixes additionally
+    # Values from Vault are always reported. These prefixes additionally
     # surface the service's own settings, so the endpoint is useful even when
-    # OpenBao supplied nothing.
+    # the store supplied nothing.
     include-prefixes:
       - cmn.
       - spring.application.
 
   startup:
     # How long the startup guard waits for configuration to resolve.
-    guard-timeout: 10s
+    guard-timeout: ${CMN_STARTUP_GUARD_TIMEOUT:10s}
 
 logging:
   level:

@@ -92,13 +92,23 @@ services:
       # start without exactly one of local/dev/staging/prod.
       SPRING_PROFILES_ACTIVE: "${SPRING_PROFILES_ACTIVE:-dev}"
 
+      # Standard HashiCorp Vault variables. OpenBao implements the Vault API,
+      # so the service is configured the same way either way - point VAULT_ADDR
+      # at a real Vault cluster and nothing else here changes.
+      #
       # Container-to-container, so the service name resolves, not localhost.
-      BAO_ADDR: "http://openbao:8200"
+      VAULT_ADDR: "${VAULT_ADDR:-http://openbao:8200}"
+      VAULT_NAMESPACE: "${VAULT_NAMESPACE:-}"
 
-      BAO_AUTH: "${BAO_AUTH:-TOKEN}"
-      BAO_TOKEN: "${BAO_TOKEN:-}"
-      BAO_ROLE_ID: "${BAO_ROLE_ID:-}"
-      BAO_SECRET_ID: "${BAO_SECRET_ID:-}"
+      VAULT_AUTH: "${VAULT_AUTH:-${BAO_AUTH:-TOKEN}}"
+      VAULT_TOKEN: "${VAULT_TOKEN:-${BAO_TOKEN:-}}"
+      VAULT_ROLE_ID: "${VAULT_ROLE_ID:-${BAO_ROLE_ID:-}}"
+      VAULT_SECRET_ID: "${VAULT_SECRET_ID:-${BAO_SECRET_ID:-}}"
+
+      # OpenBao omits the Enterprise-only "performance_standby" field, which
+      # breaks Spring Vault's health indicator. Set true against Vault
+      # Enterprise.
+      VAULT_HEALTH_ENABLED: "${VAULT_HEALTH_ENABLED:-false}"
 
       JAVA_OPTS: "-XX:MaxRAMPercentage=75 -XX:+UseZGC"
 

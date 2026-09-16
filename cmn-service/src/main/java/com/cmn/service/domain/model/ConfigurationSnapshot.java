@@ -31,19 +31,19 @@ public record ConfigurationSnapshot(Environment environment, List<ConfigurationE
                 .collect(Collectors.groupingBy(ConfigurationEntry::origin, Collectors.counting()));
     }
 
-    /** Whether any value at all was supplied by OpenBao. */
-    public boolean backedByOpenBao() {
-        return entries.stream().anyMatch(entry -> entry.origin() == ConfigurationOrigin.OPENBAO);
+    /** Whether any value at all was supplied by Vault. */
+    public boolean backedByVault() {
+        return entries.stream().anyMatch(entry -> entry.origin() == ConfigurationOrigin.VAULT);
     }
 
     /**
      * Whether this snapshot is safe to run with.
      *
      * <p>An environment that requires secrets must have received at least one value
-     * from OpenBao; otherwise the instance is running on bundled defaults and should
+     * from Vault; otherwise the instance is running on bundled defaults and should
      * not be serving traffic.
      */
     public boolean satisfiesEnvironmentRequirements() {
-        return !environment.secretsRequired() || backedByOpenBao();
+        return !environment.secretsRequired() || backedByVault();
     }
 }

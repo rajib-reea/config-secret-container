@@ -9,7 +9,7 @@ import reactor.core.publisher.Mono;
  * Driven port: where resolved configuration comes from.
  *
  * <p>The application layer depends on this interface; the infrastructure layer
- * supplies the implementation. Swapping OpenBao for a file, a database or a test
+ * supplies the implementation. Swapping the secret store for a file, a database or a test
  * double is a matter of providing a different adapter - nothing in the domain or
  * application layer changes.
  */

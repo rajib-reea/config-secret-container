@@ -52,7 +52,7 @@ public class ConfigurationHandler {
                         .bodyValue(Map.of(
                                 "environment", snapshot.environment().profile(),
                                 "secretsRequired", snapshot.environment().secretsRequired(),
-                                "backedByOpenBao", snapshot.backedByOpenBao(),
+                                "backedByVault", snapshot.backedByVault(),
                                 "healthy", snapshot.satisfiesEnvironmentRequirements())));
     }
 
@@ -61,7 +61,7 @@ public class ConfigurationHandler {
     private Map<String, Object> toPayload(ConfigurationSnapshot snapshot) {
         return Map.of(
                 "environment", snapshot.environment().profile(),
-                "backedByOpenBao", snapshot.backedByOpenBao(),
+                "backedByVault", snapshot.backedByVault(),
                 "satisfiesEnvironmentRequirements", snapshot.satisfiesEnvironmentRequirements(),
                 "configCount", snapshot.configCount(),
                 "secretCount", snapshot.secretCount(),

@@ -95,7 +95,7 @@ config-secret-container/
 │   └── config/
 │       └── openbao.hcl
 │
-└── cmn-service/                the service configured from OpenBao
+└── cmn-service/                the service configured from the store
     ├── README.md
     ├── Dockerfile
     ├── pom.xml
@@ -105,9 +105,16 @@ config-secret-container/
         │   ├── application/    use cases - no Spring
         │   └── infrastructure/ adapters and the composition root
         └── resources/
-            ├── application.yml         common + OpenBao wiring
+            ├── application.yml         common + Vault wiring
             └── application-local.yml   local overrides only
 ```
+
+> **OpenBao or HashiCorp Vault.** OpenBao implements the Vault API, and outside
+> the `local` profile `cmn-service` is configured entirely with standard Vault
+> conventions — `VAULT_ADDR`, `VAULT_TOKEN`, `VAULT_NAMESPACE`, `VAULT_ROLE_ID`,
+> `VAULT_SECRET_ID`. Point `VAULT_ADDR` at a real Vault cluster and nothing else
+> changes. See
+> [`cmn-service/README.md`](./cmn-service/README.md#against-a-real-hashicorp-vault).
 
 | Path                              | Purpose                                              |
 | --------------------------------- | ---------------------------------------------------- |
@@ -144,7 +151,7 @@ troubleshooting and security considerations.
 ```bash
 cd openbao
 ./bao-up.sh --migrate
-BAO_TOKEN="$(./bao-token.sh)" docker compose --profile app up -d --build
+VAULT_TOKEN="$(./bao-token.sh)" docker compose --profile app up -d --build
 ```
 
 OpenBao on `:8200`, cmn-service on `:8080`.

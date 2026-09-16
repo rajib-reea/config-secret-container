@@ -1,23 +1,39 @@
 # cmn-service
 
-Reactive Spring Boot service whose configuration and secrets come from the
-OpenBao instance in [`../openbao`](../openbao).
+Reactive Spring Boot service whose configuration and secrets come from a
+**HashiCorp Vault-compatible** secret store.
 
 * **Spring Boot 4.1.1** on **JDK 25**, **WebFlux** (Netty, functional routing)
 * **Hexagonal architecture** — the domain and application layers contain no Spring
-* Configuration from OpenBao via Spring Cloud Vault, resolved per profile
+* Configuration from Vault via Spring Cloud Vault, resolved per profile
+
+## OpenBao or HashiCorp Vault
+
+The local stack in [`../openbao`](../openbao) runs **OpenBao**, which implements
+the Vault API. Outside `local`, this service does not care which one it talks to
+and is configured entirely with **standard Vault conventions**:
+
+```text
+VAULT_ADDR   VAULT_TOKEN   VAULT_NAMESPACE   VAULT_ROLE_ID   VAULT_SECRET_ID
+```
+
+Point `VAULT_ADDR` at a real Vault cluster and nothing else changes. The `BAO_*`
+names are accepted as fallbacks so the scripts in `../openbao` keep working.
+
+Exactly one thing genuinely differs between the two — the health indicator. See
+[Vault vs OpenBao](#vault-vs-openbao) below.
 
 ---
 
 ## Quick start
 
 ```bash
-# 1. OpenBao, populated
+# 1. The store, populated
 cd ../openbao && ./bao-up.sh --migrate
 
 # 2. The service
 cd ../cmn-service
-BAO_TOKEN="$(cd ../openbao && ./bao-token.sh)" \
+VAULT_TOKEN="$(cd ../openbao && ./bao-token.sh)" \
   mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
@@ -25,7 +41,7 @@ Or the whole stack in Docker:
 
 ```bash
 cd ../openbao
-BAO_TOKEN="$(./bao-token.sh)" docker compose --profile app up -d --build
+VAULT_TOKEN="$(./bao-token.sh)" docker compose --profile app up -d --build
 ```
 
 Then:
@@ -63,7 +79,7 @@ curl localhost:8080/api/v1/configuration
         │  infrastructure/adapter/out│   SpringEnvironmentConfigurationAdapter
         └─────────────┬──────────────┘
                       │
-                  OpenBao
+            Vault-compatible store
 ```
 
 Every dependency arrow points inward.
@@ -95,11 +111,11 @@ Only two files:
 
 | File | Contents |
 | --- | --- |
-| `application.yml` | Common settings and how to reach OpenBao |
+| `application.yml` | Common settings and how to reach Vault |
 | `application-local.yml` | Developer-machine overrides |
 
 There is **no** `application-dev.yml`, `-staging.yml` or `-prod.yml`. Everything
-environment-specific lives in OpenBao:
+environment-specific lives in the store:
 
 ```text
 cmn/config/<profile>    non-secret configuration
@@ -121,7 +137,7 @@ spring:
         profile-separator: '/'
 ```
 
-So **adding an environment means writing two documents to OpenBao**, not adding
+So **adding an environment means writing two documents to the store**, not adding
 a file here:
 
 ```bash
@@ -134,7 +150,7 @@ Exactly one of `local`, `dev`, `staging`, `prod` must be active.
 `Environment.fromActiveProfiles` throws otherwise — an instance can never start
 without knowing which environment it is.
 
-| Profile | OpenBao | Secrets required | Notes |
+| Profile | Vault | Secrets required | Notes |
 | --- | --- | --- | --- |
 | `local` | optional | no | Falls back to the `dev` documents, debug logging, `env`/`configprops` exposed |
 | `dev` | required | no | |
@@ -148,11 +164,11 @@ without knowing which environment it is.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SPRING_PROFILES_ACTIVE` | *(none)* | Required |
-| `BAO_ADDR` | `http://localhost:8200` | OpenBao URL |
-| `BAO_AUTH` | `TOKEN` | `TOKEN` or `APPROLE` |
-| `BAO_TOKEN` | — | For `TOKEN` auth |
-| `BAO_ROLE_ID` / `BAO_SECRET_ID` | — | For `APPROLE` auth |
-| `BAO_FAIL_FAST` | `true` | `local` overrides to `false` |
+| `VAULT_ADDR` | `http://localhost:8200` | Vault/OpenBao URL (`BAO_ADDR` also accepted) |
+| `VAULT_AUTH` | `TOKEN` | `TOKEN` or `APPROLE` (`BAO_AUTH` also accepted) |
+| `VAULT_TOKEN` | — | For `TOKEN` auth (`BAO_TOKEN` also accepted) |
+| `VAULT_ROLE_ID` / `VAULT_SECRET_ID` | — | For `APPROLE` auth (`BAO_*` also accepted) |
+| `VAULT_FAIL_FAST` | `true` | `local` overrides to `false` |
 | `SERVER_PORT` | `8080` | |
 
 ---
@@ -167,7 +183,7 @@ cd ../openbao
 set -a && . ./.openbao-approle-prod.env && set +a
 
 cd ../cmn-service
-BAO_AUTH=APPROLE mvn spring-boot:run -Dspring-boot.run.profiles=prod
+VAULT_AUTH=APPROLE mvn spring-boot:run -Dspring-boot.run.profiles=prod
 ```
 
 `bao-approle.sh` creates a read-only policy scoped to `cmn/config/prod` and
@@ -176,12 +192,66 @@ read another environment's secrets.
 
 ---
 
+## Against a real HashiCorp Vault
+
+Nothing in the service changes. Create the same structure in Vault and point
+`VAULT_ADDR` at it.
+
+```bash
+export VAULT_ADDR=https://vault.internal:8200
+vault login                       # or any auth method you already use
+
+# Same KV v2 mount and layout the local stack uses
+vault secrets enable -path=cmn kv-v2
+
+vault kv put cmn/config/prod POSTGRES_USER=postgres AUTH_ISSUER_URI=...
+vault kv put cmn/secret/prod POSTGRES_PASSWORD=... WORKFLOW_JWT_SECRET=...
+```
+
+A policy equivalent to the one `bao-approle.sh` writes — note the profile-less
+paths, which Spring Cloud Vault probes first:
+
+```hcl
+path "cmn/data/config"          { capabilities = ["read"] }
+path "cmn/data/secret"          { capabilities = ["read"] }
+path "cmn/data/config/prod"     { capabilities = ["read"] }
+path "cmn/data/secret/prod"     { capabilities = ["read"] }
+path "cmn/metadata/config/prod" { capabilities = ["read", "list"] }
+path "cmn/metadata/secret/prod" { capabilities = ["read", "list"] }
+path "auth/token/renew-self"    { capabilities = ["update"] }
+path "auth/token/revoke-self"   { capabilities = ["update"] }
+```
+
+```bash
+vault policy write cmn-service-prod policy.hcl
+vault auth enable approle
+vault write auth/approle/role/cmn-service-prod \
+    token_policies=cmn-service-prod token_ttl=1h token_max_ttl=4h
+```
+
+Then run the service:
+
+```bash
+export VAULT_ADDR=https://vault.internal:8200
+export VAULT_AUTH=APPROLE
+export VAULT_ROLE_ID=...
+export VAULT_SECRET_ID=...
+export VAULT_NAMESPACE=...          # Vault Enterprise / HCP only
+
+java -jar cmn-service.jar --spring.profiles.active=prod
+```
+
+`VAULT_NAMESPACE` is ignored by OpenBao, which has no namespace concept, and by
+Vault OSS.
+
+---
+
 ## Endpoints
 
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /` | Service index |
-| `GET /api/v1/environment` | Resolved environment, and whether OpenBao backed it |
+| `GET /api/v1/environment` | Resolved environment, and whether Vault backed it |
 | `GET /api/v1/configuration` | Full snapshot, secrets masked |
 | `GET /api/v1/configuration/{key}` | One entry; 404 if absent |
 | `GET /actuator/health` | Liveness/readiness |
@@ -189,14 +259,14 @@ read another environment's secrets.
 ```json
 {
   "environment": "dev",
-  "backedByOpenBao": true,
+  "backedByVault": true,
   "satisfiesEnvironmentRequirements": true,
   "configCount": 46,
   "secretCount": 20,
-  "countByOrigin": { "OPENBAO": 61, "LOCAL_FILE": 6 },
+  "countByOrigin": { "VAULT": 61, "LOCAL_FILE": 6 },
   "entries": [
-    { "key": "POSTGRES_USER", "value": "postgres", "sensitive": false, "length": 8, "origin": "OPENBAO" },
-    { "key": "POSTGRES_PASSWORD", "value": "********", "sensitive": true, "length": 22, "origin": "OPENBAO" }
+    { "key": "POSTGRES_USER", "value": "postgres", "sensitive": false, "length": 8, "origin": "VAULT" },
+    { "key": "POSTGRES_PASSWORD", "value": "********", "sensitive": true, "length": 22, "origin": "VAULT" }
   ]
 }
 ```
@@ -228,19 +298,31 @@ docker build -t cmn-service:latest .
 
 ---
 
-## Two OpenBao-specific behaviours
+## Vault vs OpenBao
 
-### 1. The Vault health indicator is disabled
+### 1. The health indicator is off by default
 
 ```yaml
-management.health.vault.enabled: false
+management.health.vault.enabled: ${VAULT_HEALTH_ENABLED:false}
 ```
+
+This is the **only** behavioural difference between the two backends that this
+service has to care about.
 
 Spring Vault maps `performance_standby` to a primitive `boolean`. That field is
 Vault **Enterprise**-only and OpenBao omits it from `/v1/sys/health`, so Jackson
 fails with `Cannot map null into type boolean` and `/actuator/health` is
 permanently `DOWN` on a healthy service. Only the indicator is affected;
 reading configuration works normally.
+
+Against **Vault Enterprise** the field is present and the indicator works, so
+turn it on there:
+
+```bash
+VAULT_HEALTH_ENABLED=true
+```
+
+Vault **OSS** also omits the field, so leave it off there too.
 
 ### 2. `SecretsAvailabilityGuard` exists because Vault does not fail on missing paths
 

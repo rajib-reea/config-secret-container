@@ -16,7 +16,7 @@ import org.springframework.beans.factory.InitializingBean;
  * <pre>Vault location [cmn/config/staging] not resolvable: Not found</pre>
  *
  * and carries on. {@code spring.cloud.vault.fail-fast} covers an unreachable or
- * sealed OpenBao, not an empty path. Without this guard a staging or production
+ * sealed server, not an empty path. Without this guard a staging or production
  * instance would start happily on bundled defaults and serve traffic with no real
  * configuration - the exact failure the profiles were meant to prevent.
  *
@@ -49,23 +49,23 @@ public class SecretsAvailabilityGuard implements InitializingBean {
         var environment = snapshot.environment();
 
         if (snapshot.satisfiesEnvironmentRequirements()) {
-            log.info("Configuration for '{}' resolved: {} values from OpenBao, {} secrets",
+            log.info("Configuration for '{}' resolved: {} values from Vault, {} secrets",
                     environment.profile(),
                     snapshot.countByOrigin().getOrDefault(
-                            com.cmn.service.domain.model.ConfigurationOrigin.OPENBAO, 0L),
+                            com.cmn.service.domain.model.ConfigurationOrigin.VAULT, 0L),
                     snapshot.secretCount());
             return;
         }
 
         throw new IllegalStateException(("""
-                Refusing to start in '%s': no configuration came from OpenBao.
+                Refusing to start in '%s': no configuration came from Vault.
 
                 This environment requires secrets. Every value currently resolved came \
-                from bundled defaults, which means OpenBao returned nothing for the \
+                from bundled defaults, which means the store returned nothing for the \
                 configured paths.
 
                 Likely causes:
-                  * cmn/config/%s and cmn/secret/%s do not exist in OpenBao yet
+                  * cmn/config/%s and cmn/secret/%s do not exist in Vault yet
                   * the KV mount name does not match spring.cloud.vault.kv.backend
                   * the token or AppRole cannot read those paths
 

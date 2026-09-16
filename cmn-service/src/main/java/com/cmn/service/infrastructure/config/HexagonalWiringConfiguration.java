@@ -21,14 +21,14 @@ import org.springframework.core.env.ConfigurableEnvironment;
 @EnableConfigurationProperties(CmnServiceProperties.class)
 public class HexagonalWiringConfiguration {
 
-    /** Driven side: OpenBao-backed configuration, read through Spring's Environment. */
+    /** Driven side: Vault-backed configuration, read through Spring's Environment. */
     @Bean
     ConfigurationSourcePort configurationSourcePort(
             ConfigurableEnvironment environment, CmnServiceProperties properties) {
 
         // Spring Cloud Vault names each property source after the KV path it read
         // ("cmn/config/dev"), never after "vault". Derive the prefix from the
-        // configured backend so values can be attributed to OpenBao.
+        // configured backend so values can be attributed to Vault.
         var backend = environment.getProperty("spring.cloud.vault.kv.backend", "cmn");
 
         return new SpringEnvironmentConfigurationAdapter(

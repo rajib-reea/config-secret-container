@@ -67,6 +67,6 @@ class ConfigurationEntryTest {
 
     private static ConfigurationEntry entry(String key, String value) {
         return new ConfigurationEntry(
-                new ConfigurationKey(key), value, ConfigurationOrigin.OPENBAO);
+                new ConfigurationKey(key), value, ConfigurationOrigin.VAULT);
     }
 }

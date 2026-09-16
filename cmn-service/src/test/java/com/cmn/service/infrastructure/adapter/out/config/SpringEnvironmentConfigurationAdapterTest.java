@@ -19,18 +19,18 @@ import reactor.test.StepVerifier;
  * <p>The property-source names here are the real ones Spring Cloud Vault produces.
  * It names each source after the KV path it read - {@code cmn/config/dev} - with no
  * mention of "vault" anywhere. An earlier version of this adapter looked for the
- * substring "vault" and silently attributed every OpenBao value to
- * {@code LOCAL_FILE}, which made the service report {@code backedByOpenBao: false}
- * while running entirely on OpenBao data. These tests exist to keep that fixed.
+ * substring "vault" and silently attributed every Vault value to
+ * {@code LOCAL_FILE}, which made the service report {@code backedByVault: false}
+ * while running entirely on Vault data. These tests exist to keep that fixed.
  */
 class SpringEnvironmentConfigurationAdapterTest {
 
-    private static final List<String> OPENBAO_PREFIXES = List.of("cmn/");
+    private static final List<String> VAULT_PREFIXES = List.of("cmn/");
     private static final List<String> INCLUDE_PREFIXES = List.of("cmn.", "spring.application.");
 
     @Test
-    @DisplayName("values from a vault-named property source are attributed to OpenBao")
-    void attributesVaultSourcesToOpenBao() {
+    @DisplayName("values from a vault-named property source are attributed to Vault")
+    void attributesVaultSourcesToVault() {
         var environment = new StandardEnvironment();
         environment.setActiveProfiles("dev");
         environment.getPropertySources().addFirst(new MapPropertySource(
@@ -45,7 +45,7 @@ class SpringEnvironmentConfigurationAdapterTest {
                     assertThat(entries).hasSize(2);
                     assertThat(entries)
                             .allSatisfy(e -> assertThat(e.origin())
-                                    .isEqualTo(ConfigurationOrigin.OPENBAO));
+                                    .isEqualTo(ConfigurationOrigin.VAULT));
                 })
                 .verifyComplete();
     }
@@ -76,8 +76,8 @@ class SpringEnvironmentConfigurationAdapterTest {
     }
 
     @Test
-    @DisplayName("everything from OpenBao is reported regardless of prefix")
-    void openBaoValuesIgnoreIncludePrefixes() {
+    @DisplayName("everything from Vault is reported regardless of prefix")
+    void vaultValuesIgnoreIncludePrefixes() {
         var environment = new StandardEnvironment();
         environment.setActiveProfiles("dev");
         environment.getPropertySources().addFirst(new MapPropertySource(
@@ -97,7 +97,7 @@ class SpringEnvironmentConfigurationAdapterTest {
         var environment = new StandardEnvironment();
         environment.setActiveProfiles("dev");
         environment.getPropertySources().addLast(new MapPropertySource(
-                "cmn/config/dev", Map.of("SHARED_KEY", "from-openbao")));
+                "cmn/config/dev", Map.of("SHARED_KEY", "from-vault")));
         environment.getPropertySources().addFirst(new MapPropertySource(
                 "commandLineArgs", Map.of("SHARED_KEY", "from-cli")));
 
@@ -152,6 +152,6 @@ class SpringEnvironmentConfigurationAdapterTest {
 
     private static SpringEnvironmentConfigurationAdapter adapter(StandardEnvironment environment) {
         return new SpringEnvironmentConfigurationAdapter(
-                environment, INCLUDE_PREFIXES, OPENBAO_PREFIXES);
+                environment, INCLUDE_PREFIXES, VAULT_PREFIXES);
     }
 }

@@ -7,7 +7,7 @@ import java.util.Collection;
  * The deployment environment a running instance belongs to.
  *
  * <p>Each constant maps to a Spring profile of the same (lower-case) name and to
- * the OpenBao documents {@code cmn/config/<profile>} and
+ * the Vault documents {@code cmn/config/<profile>} and
  * {@code cmn/secret/<profile>}.
  *
  * <p>Domain type: no framework dependencies.

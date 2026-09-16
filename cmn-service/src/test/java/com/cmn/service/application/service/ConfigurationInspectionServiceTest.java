@@ -24,8 +24,8 @@ class ConfigurationInspectionServiceTest {
     @DisplayName("snapshot combines the environment with everything the source yields")
     void buildsSnapshot() {
         var service = new ConfigurationInspectionService(new FakeSource(Environment.DEV, List.of(
-                entry("POSTGRES_USER", "postgres", ConfigurationOrigin.OPENBAO),
-                entry("POSTGRES_PASSWORD", "demo-pw", ConfigurationOrigin.OPENBAO),
+                entry("POSTGRES_USER", "postgres", ConfigurationOrigin.VAULT),
+                entry("POSTGRES_PASSWORD", "demo-pw", ConfigurationOrigin.VAULT),
                 entry("cmn.inspection.x", "y", ConfigurationOrigin.LOCAL_FILE))));
 
         StepVerifier.create(service.currentSnapshot())
@@ -34,31 +34,31 @@ class ConfigurationInspectionServiceTest {
                     assertThat(snapshot.entries()).hasSize(3);
                     assertThat(snapshot.secretCount()).isEqualTo(1);
                     assertThat(snapshot.configCount()).isEqualTo(2);
-                    assertThat(snapshot.backedByOpenBao()).isTrue();
+                    assertThat(snapshot.backedByVault()).isTrue();
                     assertThat(snapshot.countByOrigin())
-                            .containsEntry(ConfigurationOrigin.OPENBAO, 2L)
+                            .containsEntry(ConfigurationOrigin.VAULT, 2L)
                             .containsEntry(ConfigurationOrigin.LOCAL_FILE, 1L);
                 })
                 .verifyComplete();
     }
 
     @Test
-    @DisplayName("staging without any OpenBao value does not satisfy its requirements")
-    void stagingRequiresOpenBao() {
+    @DisplayName("staging without any Vault value does not satisfy its requirements")
+    void stagingRequiresVault() {
         var service = new ConfigurationInspectionService(new FakeSource(Environment.STAGING,
                 List.of(entry("SOME_KEY", "from-yaml", ConfigurationOrigin.LOCAL_FILE))));
 
         StepVerifier.create(service.currentSnapshot())
                 .assertNext(snapshot -> {
-                    assertThat(snapshot.backedByOpenBao()).isFalse();
+                    assertThat(snapshot.backedByVault()).isFalse();
                     assertThat(snapshot.satisfiesEnvironmentRequirements()).isFalse();
                 })
                 .verifyComplete();
     }
 
     @Test
-    @DisplayName("local without OpenBao is still considered satisfied")
-    void localToleratesMissingOpenBao() {
+    @DisplayName("local without Vault is still considered satisfied")
+    void localToleratesMissingVault() {
         var service = new ConfigurationInspectionService(new FakeSource(Environment.LOCAL,
                 List.of(entry("SOME_KEY", "from-yaml", ConfigurationOrigin.LOCAL_FILE))));
 

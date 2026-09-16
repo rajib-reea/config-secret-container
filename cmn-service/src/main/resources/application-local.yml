@@ -1,30 +1,31 @@
 # ============================================================
-# local - a developer's machine.
+# local - a developer's machine, running the OpenBao stack in openbao/.
 #
-# The only environment with a file of its own. Everything here is a
-# convenience for local work; dev, staging and prod take their configuration
-# from OpenBao and need no file.
+# The only environment with a file of its own, and the only one that assumes
+# anything about which secret store is behind the Vault API. dev, staging and
+# prod are configured entirely through standard VAULT_* variables and take
+# their values from the store - see application.yml.
 #
 #   cd openbao && ./bao-up.sh --migrate
-#   export BAO_TOKEN="$(cd openbao && ./bao-token.sh)"
+#   export VAULT_TOKEN="$(cd openbao && ./bao-token.sh)"
 #   mvn spring-boot:run -Dspring-boot.run.profiles=local
 # ============================================================
 
 spring:
   config:
-    # optional: -> a missing, sealed or absent OpenBao is not fatal here, so
-    # unrelated work is never blocked by the secret store being down.
+    # optional: -> a missing, sealed or absent store is not fatal here, so
+    # unrelated work is never blocked by it being down.
     import: optional:vault://
 
   cloud:
     vault:
-      uri: http://localhost:8200
+      uri: ${VAULT_ADDR:${BAO_ADDR:http://localhost:8200}}
       fail-fast: false
 
       kv:
         # env-to-bao.sh writes cmn/config/dev by default, so a developer who
         # has not created a local/ pair still gets real values. Spring Cloud
-        # Vault reads every active profile, and later entries win.
+        # Vault reads every listed profile, and later entries win.
         profiles: local,dev
 
 management:

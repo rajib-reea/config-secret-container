@@ -33,7 +33,7 @@ public record CmnServiceProperties(Inspection inspection, Startup startup) {
 
     /**
      * @param includePrefixes property-name prefixes to report even when the value did
-     *                        not come from OpenBao. Values from OpenBao are always
+     *                        not come from Vault. Values from Vault are always
      *                        reported; this keeps everything else out of the response
      *                        rather than dumping the JVM's entire property space.
      */
