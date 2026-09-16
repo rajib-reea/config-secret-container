@@ -54,6 +54,61 @@ services:
       retries: 5
       start_period: 10s
 
+  # ----------------------------------------------------------
+  # cmn-service
+  #
+  # Opt-in, so `docker compose up -d` still starts OpenBao alone:
+  #
+  #     docker compose --profile app up -d --build
+  #
+  # BAO_TOKEN must be supplied. The scripts write it to .openbao-keys.json,
+  # so the usual invocation is:
+  #
+  #     BAO_TOKEN="$(./bao-token.sh)" docker compose --profile app up -d --build
+  #
+  # For an AppRole instead of a token:
+  #
+  #     ./bao-approle.sh prod
+  #     set -a && . ./.openbao-approle-prod.env && set +a
+  #     SPRING_PROFILES_ACTIVE=prod BAO_AUTH=APPROLE \
+  #       docker compose --profile app up -d --build
+  # ----------------------------------------------------------
+  cmn-service:
+    profiles: ["app"]
+
+    build:
+      context: ../cmn-service
+      dockerfile: Dockerfile
+
+    image: cmn-service:latest
+    container_name: cmn-service
+    restart: unless-stopped
+
+    ports:
+      - "8080:8080"
+
+    environment:
+      # No default profile is baked into the image - the service refuses to
+      # start without exactly one of local/dev/staging/prod.
+      SPRING_PROFILES_ACTIVE: "${SPRING_PROFILES_ACTIVE:-dev}"
+
+      # Container-to-container, so the service name resolves, not localhost.
+      BAO_ADDR: "http://openbao:8200"
+
+      BAO_AUTH: "${BAO_AUTH:-TOKEN}"
+      BAO_TOKEN: "${BAO_TOKEN:-}"
+      BAO_ROLE_ID: "${BAO_ROLE_ID:-}"
+      BAO_SECRET_ID: "${BAO_SECRET_ID:-}"
+
+      JAVA_OPTS: "-XX:MaxRAMPercentage=75 -XX:+UseZGC"
+
+    depends_on:
+      openbao:
+        # OpenBao reports healthy while sealed, so this only guarantees the
+        # process is up - not that it can serve secrets. The service's own
+        # fail-fast and SecretsAvailabilityGuard handle a sealed store.
+        condition: service_healthy
+
 volumes:
   openbao_data:
     name: openbao-data

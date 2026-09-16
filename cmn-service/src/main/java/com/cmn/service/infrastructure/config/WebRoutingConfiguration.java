@@ -25,7 +25,6 @@ public class WebRoutingConfiguration {
                         .GET("/configuration", handler::snapshot)
                         .GET("/configuration/{key}", handler::entry)
                         .GET("/environment", handler::environment))
-                .filter((request, next) -> next.handle(request))
                 .build();
     }
 

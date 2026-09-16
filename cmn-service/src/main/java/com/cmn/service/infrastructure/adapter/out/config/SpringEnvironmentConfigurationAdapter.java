@@ -82,11 +82,27 @@ public class SpringEnvironmentConfigurationAdapter implements ConfigurationSourc
     // ------------------------------------------------------------------
 
     private List<ConfigurationEntry> collectEntries() {
+        // Names defined by OpenBao anywhere in the stack, at any precedence.
+        //
+        // This is collected separately, and deliberately: a key can be defined by
+        // OpenBao and then overridden by a command-line argument or environment
+        // variable. Deciding inclusion from the winning source alone would drop
+        // such a key from the report entirely - which hides exactly the case an
+        // operator most needs to see, an OpenBao-managed value being overridden.
+        var openBaoNames = new java.util.HashSet<String>();
+
+        for (PropertySource<?> source : environment.getPropertySources()) {
+            if (source instanceof EnumerablePropertySource<?> enumerable
+                    && originOf(enumerable.getName()) == ConfigurationOrigin.OPENBAO) {
+                openBaoNames.addAll(List.of(enumerable.getPropertyNames()));
+            }
+        }
+
         var entries = new ArrayList<ConfigurationEntry>();
         var seen = new java.util.HashSet<String>();
 
         // Property sources are ordered by precedence; the first occurrence of a
-        // key is the one that actually won, so later duplicates are skipped.
+        // key is the source that actually won, and therefore its true origin.
         for (PropertySource<?> source : environment.getPropertySources()) {
             if (!(source instanceof EnumerablePropertySource<?> enumerable)) {
                 continue;
@@ -95,7 +111,7 @@ public class SpringEnvironmentConfigurationAdapter implements ConfigurationSourc
             var origin = originOf(enumerable.getName());
 
             for (String name : enumerable.getPropertyNames()) {
-                if (!seen.add(name) || !included(name, origin)) {
+                if (!included(name, openBaoNames) || !seen.add(name)) {
                     continue;
                 }
 
@@ -113,12 +129,13 @@ public class SpringEnvironmentConfigurationAdapter implements ConfigurationSourc
     }
 
     /**
-     * Everything OpenBao supplied is included. Values from anywhere else are
-     * included only when they match a configured prefix, so the endpoint reports
-     * this service's configuration rather than the JVM's entire property space.
+     * Any name OpenBao defines is reported, whatever ultimately supplied its value.
+     * Names from anywhere else are reported only when they match a configured
+     * prefix, so the endpoint describes this service's configuration rather than
+     * the JVM's entire property space.
      */
-    private boolean included(String name, ConfigurationOrigin origin) {
-        if (origin == ConfigurationOrigin.OPENBAO) {
+    private boolean included(String name, java.util.Set<String> openBaoNames) {
+        if (openBaoNames.contains(name)) {
             return true;
         }
         return includePrefixes.stream().anyMatch(name::startsWith);

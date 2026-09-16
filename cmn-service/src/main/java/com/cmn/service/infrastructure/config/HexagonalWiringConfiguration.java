@@ -52,7 +52,9 @@ public class HexagonalWiringConfiguration {
      */
     @Bean
     SecretsAvailabilityGuard secretsAvailabilityGuard(
-            InspectConfigurationUseCase inspectConfigurationUseCase) {
-        return new SecretsAvailabilityGuard(inspectConfigurationUseCase);
+            InspectConfigurationUseCase inspectConfigurationUseCase,
+            CmnServiceProperties properties) {
+        return new SecretsAvailabilityGuard(
+                inspectConfigurationUseCase, properties.startup().guardTimeout());
     }
 }

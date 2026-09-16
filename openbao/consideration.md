@@ -150,8 +150,52 @@ cmn/secret/dev   ->   cmn/data/secret/dev
 | --- | --- |
 | `bao-up.sh` | Start, initialise once, unseal, optionally migrate. Idempotent. |
 | `bao-token.sh` | Print the root token; `--unseal-keys`, `--format`, `--import`. |
+| `bao-approle.sh` | Create a scoped AppRole identity for one profile. |
 | `bao-cli.sh` | Run any `bao` command inside the container. |
 | `env-to-bao.sh` | Migrate `.env` into KV v2. Called by `bao-up.sh --migrate`. |
+
+### Populating other environments
+
+`env-to-bao.sh` takes the profile from `SPRING_PROFILES_ACTIVE` in `.env`, but
+`PROFILE=` overrides it. That is how one `.env` populates several environments:
+
+```bash
+export BAO_TOKEN="$(./bao-token.sh)"
+export PROJECT_NAME=cmn
+
+PROFILE=staging ./env-to-bao.sh     # -> cmn/config/staging, cmn/secret/staging
+PROFILE=prod    ./env-to-bao.sh     # -> cmn/config/prod,    cmn/secret/prod
+```
+
+In a real deployment each environment would of course carry its own values;
+this simply gets the paths populated.
+
+### Scoped identities
+
+`bao-approle.sh <profile>` gives a service its own credentials instead of the
+root token:
+
+```bash
+./bao-approle.sh prod
+set -a && . ./.openbao-approle-prod.env && set +a
+```
+
+It creates a read-only policy limited to `cmn/config/<profile>` and
+`cmn/secret/<profile>`, enables the approle auth method if needed, issues
+`BAO_ROLE_ID`/`BAO_SECRET_ID` into a git-ignored file, then verifies both that
+the credentials **can** read their own environment and **cannot** read another.
+
+> The policy also grants read on the profile-less paths `cmn/data/config` and
+> `cmn/data/secret`. Spring Cloud Vault probes those before the profile-specific
+> ones; with permission they return 404 and are ignored, but **without**
+> permission they return 403, which `fail-fast: true` turns into a startup
+> failure:
+>
+> ```text
+> VaultException: Status 403 Forbidden [cmn/data/secret]: permission denied
+> ```
+>
+> Granting read on a path that does not exist discloses nothing.
 
 `bao-up.sh` options:
 

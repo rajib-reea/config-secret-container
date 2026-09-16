@@ -15,6 +15,7 @@
 
 .openbao-keys.json
 .openbao-keys.json.*.bak
+.openbao-approle-*.env
 bao-init.json
 *unseal*
 *root-token*

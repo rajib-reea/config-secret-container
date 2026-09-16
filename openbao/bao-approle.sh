@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# ============================================================
+# Give cmn-service its own OpenBao identity.
+#
+#   ./bao-approle.sh [profile]        default: prod
+#
+# Creates, idempotently:
+#
+#   * policy  cmn-service-<profile>   read-only on cmn/config/<profile>
+#                                     and cmn/secret/<profile>
+#   * approle auth method             enabled if not already
+#   * role    cmn-service-<profile>   bound to that policy
+#
+# and writes the credentials to .openbao-approle-<profile>.env, which is
+# git-ignored.
+#
+# Why this exists: application-prod.yml authenticates with APPROLE rather
+# than a token. The root token must never reach a running service - it can
+# read and write everything, and it does not expire.
+# ============================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+export MSYS_NO_PATHCONV=1
+
+PROFILE="${1:-prod}"
+MOUNT="${PROJECT_NAME:-cmn}"
+ROLE="cmn-service-${PROFILE}"
+POLICY="cmn-service-${PROFILE}"
+CREDS_FILE="$SCRIPT_DIR/.openbao-approle-${PROFILE}.env"
+
+BAO_TOKEN="${BAO_TOKEN:-$(./bao-token.sh)}"
+export BAO_TOKEN
+
+say()  { printf '%s\n' "$*"; }
+step() { printf '\n==> %s\n' "$*"; }
+die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+bao() { ./bao-cli.sh "$@"; }
+
+
+# ------------------------------------------------------------
+# Preconditions
+# ------------------------------------------------------------
+
+bao status >/dev/null 2>&1 \
+    || die "Cannot reach OpenBao. Run ./bao-up.sh first."
+
+bao kv get "${MOUNT}/config/${PROFILE}" >/dev/null 2>&1 \
+    || die "${MOUNT}/config/${PROFILE} does not exist.
+       Populate it first:  PROFILE=${PROFILE} ./env-to-bao.sh"
+
+
+# ------------------------------------------------------------
+# 1. Policy - read-only, scoped to this profile only
+# ------------------------------------------------------------
+
+step "Writing policy ${POLICY}"
+
+# KV v2 splits data and metadata into separate API paths, so both need
+# granting. "list" on metadata is what lets the service enumerate keys.
+#
+# The profile-less paths (cmn/data/config, cmn/data/secret) must be granted
+# too, even though nothing writes them. Spring Cloud Vault always probes the
+# default-context and application-name without a profile before the
+# profile-specific ones. With permission those probes return 404 and are
+# logged as "not resolvable: Not found", which is tolerated; WITHOUT
+# permission they return 403, and spring.cloud.vault.fail-fast turns that
+# into a startup failure:
+#
+#   VaultException: Status 403 Forbidden [cmn/data/secret]: permission denied
+#
+# Granting read on a path that does not exist discloses nothing.
+bao policy write "$POLICY" - <<EOF
+path "${MOUNT}/data/config" {
+  capabilities = ["read"]
+}
+
+path "${MOUNT}/data/secret" {
+  capabilities = ["read"]
+}
+
+path "${MOUNT}/data/config/${PROFILE}" {
+  capabilities = ["read"]
+}
+
+path "${MOUNT}/data/secret/${PROFILE}" {
+  capabilities = ["read"]
+}
+
+path "${MOUNT}/metadata/config" {
+  capabilities = ["read", "list"]
+}
+
+path "${MOUNT}/metadata/secret" {
+  capabilities = ["read", "list"]
+}
+
+path "${MOUNT}/metadata/config/${PROFILE}" {
+  capabilities = ["read", "list"]
+}
+
+path "${MOUNT}/metadata/secret/${PROFILE}" {
+  capabilities = ["read", "list"]
+}
+
+# Renew and revoke its own token; nothing else.
+path "auth/token/renew-self" {
+  capabilities = ["update"]
+}
+
+path "auth/token/revoke-self" {
+  capabilities = ["update"]
+}
+EOF
+
+say "    ${POLICY} written"
+
+
+# ------------------------------------------------------------
+# 2. AppRole auth method
+# ------------------------------------------------------------
+
+step "Ensuring the approle auth method is enabled"
+
+if bao auth list 2>/dev/null | grep -q '^approle/'; then
+    say "    already enabled"
+else
+    bao auth enable approle
+    say "    enabled"
+fi
+
+
+# ------------------------------------------------------------
+# 3. The role
+# ------------------------------------------------------------
+
+step "Creating role ${ROLE}"
+
+bao write "auth/approle/role/${ROLE}" \
+    token_policies="$POLICY" \
+    token_ttl=1h \
+    token_max_ttl=4h \
+    secret_id_ttl=24h \
+    secret_id_num_uses=0 >/dev/null
+
+say "    token_ttl=1h token_max_ttl=4h secret_id_ttl=24h"
+
+
+# ------------------------------------------------------------
+# 4. Credentials
+# ------------------------------------------------------------
+
+step "Issuing credentials"
+
+ROLE_ID="$(bao read -field=role_id "auth/approle/role/${ROLE}/role-id" | tr -d '\r')"
+SECRET_ID="$(bao write -f -field=secret_id "auth/approle/role/${ROLE}/secret-id" | tr -d '\r')"
+
+[[ -n "$ROLE_ID"   ]] || die "Could not read role_id"
+[[ -n "$SECRET_ID" ]] || die "Could not issue secret_id"
+
+umask 077
+cat > "$CREDS_FILE" <<EOF
+# cmn-service AppRole credentials for the ${PROFILE} profile.
+# Generated by bao-approle.sh - git-ignored, do not commit.
+#
+#   set -a && . ./$(basename "$CREDS_FILE") && set +a
+#
+# secret_id expires after 24h; re-run ./bao-approle.sh ${PROFILE} to reissue.
+BAO_ROLE_ID=${ROLE_ID}
+BAO_SECRET_ID=${SECRET_ID}
+EOF
+
+say "    written to $CREDS_FILE"
+
+
+# ------------------------------------------------------------
+# 5. Prove the credentials work and are properly limited
+# ------------------------------------------------------------
+
+step "Verifying"
+
+LOGIN_TOKEN="$(
+    bao write -field=token auth/approle/login \
+        role_id="$ROLE_ID" \
+        secret_id="$SECRET_ID" | tr -d '\r'
+)"
+
+[[ -n "$LOGIN_TOKEN" ]] || die "AppRole login failed"
+say "    login OK"
+
+if BAO_TOKEN="$LOGIN_TOKEN" bao kv get "${MOUNT}/secret/${PROFILE}" >/dev/null 2>&1; then
+    say "    can read ${MOUNT}/secret/${PROFILE}"
+else
+    die "AppRole token cannot read ${MOUNT}/secret/${PROFILE} - policy is wrong"
+fi
+
+# The whole point of a scoped identity: it must NOT see other environments.
+if BAO_TOKEN="$LOGIN_TOKEN" bao kv get "${MOUNT}/secret/dev" >/dev/null 2>&1; then
+    die "AppRole token can read ${MOUNT}/secret/dev - policy is too broad"
+else
+    say "    correctly denied ${MOUNT}/secret/dev"
+fi
+
+
+# ------------------------------------------------------------
+# Done
+# ------------------------------------------------------------
+
+cat <<EOF
+
+==> Ready
+
+  Role     : ${ROLE}
+  Policy   : ${POLICY}
+  Scope    : ${MOUNT}/config/${PROFILE}, ${MOUNT}/secret/${PROFILE}  (read-only)
+
+  Run the service:
+
+      set -a && . openbao/$(basename "$CREDS_FILE") && set +a
+      java -jar cmn-service/target/cmn-service-0.0.1-SNAPSHOT.jar \\
+          --spring.profiles.active=${PROFILE}
+
+EOF

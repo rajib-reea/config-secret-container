@@ -42,12 +42,28 @@ PROJECT_NAME="${PROJECT_NAME:-$(basename "$REPO_ROOT")}"
 
 
 # ------------------------------------------------------------
-# Read profile from .env
+# Determine the profile
+#
+# Precedence:
+#   1. PROFILE=...            explicit override
+#   2. SPRING_PROFILES_ACTIVE in the .env file
+#   3. "dev"
+#
+# The override is what lets one .env populate several environments:
+#
+#   PROFILE=staging ./env-to-bao.sh
+#   PROFILE=prod    ./env-to-bao.sh
 # ------------------------------------------------------------
+
+PROFILE_OVERRIDE="${PROFILE:-}"
 
 PROFILE="dev"
 
-if [[ -f "$ENV_FILE" ]]; then
+if [[ -n "$PROFILE_OVERRIDE" ]]; then
+
+    PROFILE="$PROFILE_OVERRIDE"
+
+elif [[ -f "$ENV_FILE" ]]; then
 
     profile_value="$(
         sed -nE \

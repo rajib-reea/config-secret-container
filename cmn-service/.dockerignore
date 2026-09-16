@@ -1,0 +1,24 @@
+# Build output - the image builds from source, never from a host-built jar
+target/
+
+# Local credentials must never enter the build context
+.openbao-keys.json
+.openbao-approle-*.env
+*.env
+
+# IDE and OS
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+.DS_Store
+
+# Logs
+*.log
+*.err
+
+# Git
+.git/
+.gitignore

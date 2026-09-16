@@ -27,19 +27,20 @@ public class SecretsAvailabilityGuard implements InitializingBean {
 
     private static final Logger log = LoggerFactory.getLogger(SecretsAvailabilityGuard.class);
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(10);
-
     private final InspectConfigurationUseCase inspectConfiguration;
+    private final Duration timeout;
 
-    public SecretsAvailabilityGuard(InspectConfigurationUseCase inspectConfiguration) {
+    public SecretsAvailabilityGuard(
+            InspectConfigurationUseCase inspectConfiguration, Duration timeout) {
         this.inspectConfiguration = inspectConfiguration;
+        this.timeout = timeout;
     }
 
     @Override
     public void afterPropertiesSet() {
         // Blocking is correct here: this is startup, on the main thread, before any
         // request can arrive. Nothing is waiting on this event loop yet.
-        var snapshot = inspectConfiguration.currentSnapshot().block(TIMEOUT);
+        var snapshot = inspectConfiguration.currentSnapshot().block(timeout);
 
         if (snapshot == null) {
             throw new IllegalStateException("Could not resolve configuration at startup");

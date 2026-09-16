@@ -1,12 +1,29 @@
 # ============================================================
-# Base configuration - shared by every profile.
+# Common configuration + OpenBao wiring.
 #
-# No environment profile is active by default. Environment.fromActiveProfiles
-# fails fast if exactly one of local/dev/staging/prod is not set, so an
-# instance can never start without knowing which environment it is.
+# There are only two files in this directory:
 #
-#   java -jar cmn-service.jar --spring.profiles.active=local
-#   SPRING_PROFILES_ACTIVE=dev java -jar cmn-service.jar
+#   application.yml         this file - shared settings and how to reach OpenBao
+#   application-local.yml   developer-machine overrides
+#
+# There is deliberately NO application-dev.yml / -staging.yml / -prod.yml.
+# Everything environment-specific lives in OpenBao, under:
+#
+#   cmn/config/<profile>    non-secret configuration
+#   cmn/secret/<profile>    secrets
+#
+# The paths are resolved from the active profile by Spring Cloud Vault itself
+# (see spring.cloud.vault.kv below), so adding an environment means writing
+# two documents to OpenBao - not adding a file here.
+#
+#   cd openbao && PROFILE=staging ./env-to-bao.sh
+#
+# An environment profile is mandatory. Environment.fromActiveProfiles refuses
+# to resolve unless exactly one of local/dev/staging/prod is active, so an
+# instance can never start without knowing which environment it is:
+#
+#   java -jar cmn-service.jar --spring.profiles.active=dev
+#   SPRING_PROFILES_ACTIVE=prod java -jar cmn-service.jar
 # ============================================================
 
 spring:
@@ -16,18 +33,52 @@ spring:
   main:
     banner-mode: off
 
+  config:
+    # "vault://" with no path defers to spring.cloud.vault.kv below, which
+    # derives the paths from the active profile. Naming explicit paths here
+    # would reintroduce the per-environment coupling this layout removes.
+    import: vault://
+
   cloud:
     vault:
       # OpenBao is API-compatible with Vault, so the Vault client talks to it
-      # unchanged. Per-environment overrides live in the profile files below.
+      # unchanged.
       enabled: true
-      authentication: TOKEN
+      uri: ${BAO_ADDR:http://localhost:8200}
+
+      # TOKEN for development, APPROLE for anything real. Switch with
+      # BAO_AUTH=APPROLE and supply BAO_ROLE_ID / BAO_SECRET_ID:
+      #     cd openbao && ./bao-approle.sh prod
+      authentication: ${BAO_AUTH:TOKEN}
+      token: ${BAO_TOKEN:}
+
+      app-role:
+        role-id: ${BAO_ROLE_ID:}
+        secret-id: ${BAO_SECRET_ID:}
+
+      # An unreachable or sealed OpenBao is fatal everywhere except local,
+      # which overrides this to false.
+      fail-fast: ${BAO_FAIL_FAST:true}
+
       kv:
         enabled: true
         backend: cmn
 
+        # These four settings are what make the layout profile-driven.
+        # Spring Cloud Vault reads, for each active profile:
+        #
+        #   cmn/config            default-context, no profile
+        #   cmn/config/<profile>  default-context + separator + profile
+        #   cmn/secret            application-name, no profile
+        #   cmn/secret/<profile>  application-name + separator + profile
+        #
+        # which is exactly the structure env-to-bao.sh writes.
+        default-context: config
+        application-name: secret
+        profile-separator: '/'
+
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
   shutdown: graceful
 
 management:
@@ -67,6 +118,10 @@ cmn:
     include-prefixes:
       - cmn.
       - spring.application.
+
+  startup:
+    # How long the startup guard waits for configuration to resolve.
+    guard-timeout: 10s
 
 logging:
   level:

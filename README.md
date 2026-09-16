@@ -70,8 +70,9 @@ http://localhost:8200/ui/
 
 # Repository Structure
 
-Everything OpenBao lives under `openbao/`. `.env` stays at the root because it
-is the project's configuration, not OpenBao's.
+Two components. Everything OpenBao lives under `openbao/`; the service lives
+under `cmn-service/`. `.env` stays at the root because it is the project's
+configuration, consumed by both.
 
 ```text
 config-secret-container/
@@ -81,29 +82,47 @@ config-secret-container/
 ├── .gitignore
 ├── README.md
 │
-└── openbao/
-    ├── docker-compose.yaml
-    ├── consideration.md
-    ├── bao-up.sh
-    ├── bao-cli.sh
-    ├── bao-token.sh
-    ├── env-to-bao.sh
-    ├── .openbao-keys.json      created on first run, git-ignored
-    └── config/
-        └── openbao.hcl
+├── openbao/                    the secret store
+│   ├── docker-compose.yaml     OpenBao + (opt-in) cmn-service
+│   ├── consideration.md
+│   ├── bao-up.sh
+│   ├── bao-cli.sh
+│   ├── bao-token.sh
+│   ├── bao-approle.sh
+│   ├── env-to-bao.sh
+│   ├── .openbao-keys.json          created on first run, git-ignored
+│   ├── .openbao-approle-*.env      created by bao-approle.sh, git-ignored
+│   └── config/
+│       └── openbao.hcl
+│
+└── cmn-service/                the service configured from OpenBao
+    ├── README.md
+    ├── Dockerfile
+    ├── pom.xml
+    └── src/main/
+        ├── java/com/cmn/service/
+        │   ├── domain/         entities, value objects, ports - no Spring
+        │   ├── application/    use cases - no Spring
+        │   └── infrastructure/ adapters and the composition root
+        └── resources/
+            ├── application.yml         common + OpenBao wiring
+            └── application-local.yml   local overrides only
 ```
 
-| Path                          | Purpose                                            |
-| ----------------------------- | -------------------------------------------------- |
-| `openbao/bao-up.sh`           | Start, initialise, unseal, optionally migrate      |
-| `openbao/bao-token.sh`        | Read the root token and unseal keys                |
-| `openbao/bao-cli.sh`          | Run any `bao` command inside the container         |
-| `openbao/env-to-bao.sh`       | Migrate `.env` into KV v2                          |
-| `openbao/docker-compose.yaml` | Starts OpenBao                                     |
-| `openbao/config/openbao.hcl`  | OpenBao server configuration                       |
-| `openbao/consideration.md`    | Full setup, troubleshooting and verified procedure |
-| `.env`                        | Local/demo environment variables                   |
-| `README.md`                   | Project overview and quick start                   |
+| Path                              | Purpose                                              |
+| --------------------------------- | ---------------------------------------------------- |
+| `openbao/bao-up.sh`               | Start, initialise, unseal, optionally migrate        |
+| `openbao/bao-token.sh`            | Read the root token and unseal keys                  |
+| `openbao/bao-approle.sh`          | Create a scoped AppRole identity for a profile       |
+| `openbao/bao-cli.sh`              | Run any `bao` command inside the container           |
+| `openbao/env-to-bao.sh`           | Migrate `.env` into KV v2                            |
+| `openbao/docker-compose.yaml`     | Starts OpenBao, and cmn-service on demand            |
+| `openbao/config/openbao.hcl`      | OpenBao server configuration                         |
+| `openbao/consideration.md`        | Full setup, troubleshooting and verified procedure   |
+| `cmn-service/`                    | Spring Boot service configured from OpenBao          |
+| `cmn-service/README.md`           | Architecture, profiles, endpoints                    |
+| `.env`                            | Local/demo environment variables                     |
+| `README.md`                       | Project overview and quick start                     |
 
 ---
 
@@ -119,6 +138,27 @@ troubleshooting and security considerations.
 ---
 
 # Quick Start
+
+## Everything, in Docker
+
+```bash
+cd openbao
+./bao-up.sh --migrate
+BAO_TOKEN="$(./bao-token.sh)" docker compose --profile app up -d --build
+```
+
+OpenBao on `:8200`, cmn-service on `:8080`.
+
+```bash
+curl localhost:8080/api/v1/environment
+curl localhost:8080/api/v1/configuration
+```
+
+The `app` profile is opt-in, so a plain `docker compose up -d` still starts
+OpenBao alone. See [`cmn-service/README.md`](./cmn-service/README.md) for the
+service itself.
+
+## OpenBao only
 
 ```bash
 cd openbao
