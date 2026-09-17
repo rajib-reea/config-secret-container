@@ -1,32 +1,40 @@
 # ============================================================
-# local - a developer's machine, running the OpenBao stack in openbao/.
+# local - a developer's machine.
 #
-# The only environment with a file of its own, and the only one that assumes
-# anything about which secret store is behind the Vault API. dev, staging and
-# prod are configured entirely through standard VAULT_* variables and take
-# their values from the store - see application.yml.
+# SELF-CONTAINED. This profile reads every value from this file and does not
+# talk to Vault at all:
 #
-#   cd openbao && ./bao-up.sh --migrate
-#   export VAULT_TOKEN="$(cd openbao && ./bao-token.sh)"
+#   local                 all values from this file, Vault disabled
+#   dev / staging / prod  all values from Vault, nothing from a file
+#
+# That split is enforced in two places:
+#
+#   * application.yml imports vault:// only under the profile expression
+#     "!local", so the import is never even attempted here.
+#   * spring.cloud.vault.enabled is false below, so the auto-configuration
+#     does not start a client either.
+#
+# The practical effect: `mvn spring-boot:run -Dspring-boot.run.profiles=local`
+# works on a laptop with no OpenBao running, no token, and no network.
+#
 #   mvn spring-boot:run -Dspring-boot.run.profiles=local
+#   java -jar target/cmn-service-0.0.1-SNAPSHOT.jar            # local is the default
+#
+# ------------------------------------------------------------
+# These values are LOCAL DEVELOPMENT DEFAULTS.
+#
+# They mirror the demo values in the repository-root .env, which are
+# intentionally fake. Never put a real credential in this file - it is
+# committed. Real per-developer overrides belong in an environment variable
+# or an untracked application-local-override.yml.
+# ------------------------------------------------------------
 # ============================================================
 
 spring:
-  config:
-    # optional: -> a missing, sealed or absent store is not fatal here, so
-    # unrelated work is never blocked by it being down.
-    import: optional:vault://
-
   cloud:
     vault:
-      uri: ${VAULT_ADDR:${BAO_ADDR:http://localhost:8200}}
-      fail-fast: false
-
-      kv:
-        # env-to-bao.sh writes cmn/config/dev by default, so a developer who
-        # has not created a local/ pair still gets real values. Spring Cloud
-        # Vault reads every listed profile, and later entries win.
-        profiles: local,dev
+      # No Vault on this profile. Nothing to reach, nothing to fail.
+      enabled: false
 
 management:
   endpoints:
@@ -38,4 +46,87 @@ management:
 logging:
   level:
     com.cmn.service: DEBUG
-    org.springframework.vault: DEBUG
+
+cmn:
+  inspection:
+    # On this profile nothing comes from Vault, so the report would otherwise
+    # be almost empty. Naming the local property source makes everything this
+    # file defines visible on /api/v1/configuration, exactly as Vault values
+    # are on the other profiles.
+    include-sources:
+      - application-local.yml
+
+# ------------------------------------------------------------
+# Configuration values (non-secret) - 41 entries
+# ------------------------------------------------------------
+
+POSTGRES_DB: "cmn_db"
+POSTGRES_USER: "postgres"
+AUTH_POSTGRES_USER: "authuser"
+SUBSCRIPTION_POSTGRES_USER: "subscriptionuser"
+EMAIL_POSTGRES_USER: "emailuser"
+WORKFLOW_POSTGRES_USER: "workflowuser"
+AUTH_ISSUER_URI: "http://localhost:9081"
+AUTH_LDAP_URL: "ldap://openldap:1389"
+AUTH_LDAP_BASE_DN: "dc=example,dc=org"
+AUTH_LDAP_MANAGER_DN: "cn=admin,dc=example,dc=org"
+AUTH_LDAP_USER_SEARCH_BASE: "ou=users"
+AUTH_LDAP_USER_SEARCH_FILTER: "(cn={0})"
+AUTH_LDAP_EMAIL_ATTRIBUTE: "mail"
+AUTH_CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:3001"
+AUTH_WEBAUTHN_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:3001"
+AUTH_BFF_PROXY_SERVICES: "auth,workflow,subscription,email"
+AUTH_BFF_PROXY_AUTH_ALLOWED: "GET /api/v1/auth/users/me,GET /api/v1/auth/sessions,DELETE /api/v1/auth/sessions/*,POST /api/v1/auth/sessions/revoke-all,GET /api/v1/auth/tenant/memberships,PUT /api/v1/auth/password,GET /api/v1/auth/mfa/status,POST /api/v1/auth/mfa/setup,POST /api/v1/auth/mfa/enable,POST /api/v1/auth/mfa/disable,GET /api/v1/auth/mfa/webauthn/credentials,DELETE /api/v1/auth/mfa/webauthn/credentials/*,POST /api/v1/auth/mfa/webauthn/register/begin,POST /api/v1/auth/mfa/webauthn/register/finish,POST /api/v1/auth/otp/request,POST /api/v1/auth/otp/verify,POST /api/v1/auth/phone-verification/request,POST /api/v1/auth/phone-verification/verify,GET /api/v1/admin/clients,POST /api/v1/admin/clients,DELETE /api/v1/admin/clients/*,GET /api/v1/admin/users,POST /api/v1/admin/tenants/invites,POST /api/v1/auth/user-files,GET /api/v1/auth/user-files,GET /api/v1/auth/user-files/*,GET /api/v1/auth/user-files/*/content,DELETE /api/v1/auth/user-files/*,GET /api/v1/admin/federation-providers,POST /api/v1/admin/federation-providers,PUT /api/v1/admin/federation-providers/*,DELETE /api/v1/admin/federation-providers/*"
+AUTH_BFF_PROXY_WORKFLOW_BASE_URL: "http://cmn-workflow-svc:8080"
+AUTH_BFF_PROXY_WORKFLOW_ALLOWED: "GET /api/v1/tasks,GET /api/v1/tasks/*,POST /api/v1/tasks/*/claim,POST /api/v1/tasks/*/submit"
+AUTH_BFF_PROXY_SUBSCRIPTION_BASE_URL: "http://cmn-subscription-svc:8080"
+AUTH_BFF_PROXY_SUBSCRIPTION_ALLOWED: "GET /api/v1/usage-events,GET /api/v1/usage-entitlements,GET /api/v1/meter-readings"
+AUTH_BFF_PROXY_EMAIL_BASE_URL: "http://cmn-email-svc:8080"
+AUTH_BFF_PROXY_EMAIL_ALLOWED: "POST /api/v1/campaigns,GET /api/v1/campaigns/*,POST /api/v1/campaigns/*/launch,POST /api/v1/campaigns/*/send-to-segment,GET /api/v1/incidents,GET /api/v1/incidents/*,GET /api/v1/incidents/*/plan-items,GET /api/v1/incidents/case-model,POST /api/v1/subscribers/import/csv,GET /api/v1/subscribers,GET /api/v1/templates,GET /api/v1/templates/*,POST /api/v1/templates,PUT /api/v1/templates/*,DELETE /api/v1/templates/*,GET /api/v1/workflow-trace/sent-items,GET /api/v1/workflow-trace/sent-items/*"
+AUTH_SMTP_HOST: "mailpit"
+AUTH_SMTP_PORT: "1025"
+AUTH_SMTP_FROM: "no-reply@cmn-auth-svc.local"
+AUTH_JWK_SET_URI: "http://cmn-auth-svc:8080/oauth2/jwks"
+SUBSCRIPTION_USAGE_AGGREGATION_CRON: "0 */15 * * * *"
+SUBSCRIPTION_PAYPAL_BASE_URL: "https://api-m.sandbox.paypal.com"
+SUBSCRIPTION_BRAINTREE_ENVIRONMENT: "sandbox"
+WORKFLOW_CORS_ALLOWED_ORIGINS: "http://localhost:3000"
+WORKFLOW_AUTH_CLIENT_ID: "cmn-workflow-svc"
+FLOWABLE_ADMIN_USER: "admin"
+RELAY_USER: "demo-relay-user"
+GW_AUTH_BASE_URL: "http://cmn-auth-svc:8080"
+GW_SUBSCRIPTION_BASE_URL: "http://cmn-subscription-svc:8080"
+GW_CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:3001"
+GRAFANA_ADMIN_USER: "admin"
+KIBANA_ADMIN_USER: "admin"
+MINIO_ROOT_USER: "minioadmin"
+EMAIL_AUTH_CLIENT_ID: "cmn-email-svc"
+
+# ------------------------------------------------------------
+# Secret values - 20 entries
+#
+# Fake demo credentials. The service masks every one of these on
+# /api/v1/configuration because ConfigurationKey classifies the NAME
+# as sensitive - the same rule openbao/env-to-bao.sh uses.
+# ------------------------------------------------------------
+
+POSTGRES_PASSWORD: "demo-postgres-password"
+AUTH_POSTGRES_PASSWORD: "demo-auth-postgres-password"
+SUBSCRIPTION_POSTGRES_PASSWORD: "demo-subscription-postgres-password"
+EMAIL_POSTGRES_PASSWORD: "demo-email-postgres-password"
+WORKFLOW_POSTGRES_PASSWORD: "demo-workflow-postgres-password"
+AUTH_MFA_ENCRYPTION_KEY: "ZGVtby1tZmEtaW5jcnlwdGlvbi1rZXktMjAyNi0wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw"
+AUTH_FEDERATION_ENCRYPTION_KEY: "ZGVtby1mZWRlcmF0aW9uLWVuY3J5cHRpb24ta2V5LTIwMjYtMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw"
+AUTH_BOOTSTRAP_CLIENT_SECRET: "demo-bootstrap-client-secret"
+LDAP_ADMIN_PASSWORD: "demo-ldap-admin-password"
+AUTH_BFF_SESSION_ENCRYPTION_KEY: "ZGVtby1iZmYtc2Vzc2lvbi1lbmNyeXB0aW9uLWtleS0yMDI2LTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw"
+WORKFLOW_JWT_SECRET: "demo-workflow-jwt-secret"
+WORKFLOW_AUTH_CLIENT_SECRET: "demo-workflow-client-secret"
+FLOWABLE_ADMIN_PASSWORD: "demo-flowable-password"
+RELAY_PASSWORD: "demo-relay-password"
+GRAFANA_ADMIN_PASSWORD: "demo-grafana-password"
+ELASTIC_PASSWORD: "demo-elastic-password"
+KIBANA_SYSTEM_PASSWORD: "demo-kibana-system-password"
+KIBANA_ADMIN_PASSWORD: "demo-kibana-password"
+MINIO_ROOT_PASSWORD: "demo-minio-password"
+EMAIL_AUTH_CLIENT_SECRET: "demo-email-client-secret"

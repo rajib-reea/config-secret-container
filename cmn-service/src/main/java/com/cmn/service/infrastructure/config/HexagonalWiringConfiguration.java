@@ -34,6 +34,7 @@ public class HexagonalWiringConfiguration {
         return new SpringEnvironmentConfigurationAdapter(
                 environment,
                 properties.inspection().includePrefixes(),
+                properties.inspection().includeSources(),
                 java.util.List.of(backend + "/"));
     }
 

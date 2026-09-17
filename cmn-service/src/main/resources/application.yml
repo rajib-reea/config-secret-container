@@ -46,17 +46,33 @@
 # ============================================================
 
 spring:
+  profiles:
+    # The active environment. One of: local, dev, staging, prod.
+    #
+    # Change it here, or override without touching this file - both of these
+    # outrank the value below, because an environment variable and a command
+    # line argument both sit above application.yml in Spring's property
+    # precedence order:
+    #
+    #   SPRING_PROFILES_ACTIVE=prod java -jar cmn-service.jar
+    #   java -jar cmn-service.jar --spring.profiles.active=staging
+    #
+    # Exactly one environment profile must end up active. Environment
+    # .fromActiveProfiles throws if none or several are, so a typo here fails
+    # at startup rather than silently picking a default.
+    #
+    # The default is deliberately "local", the most tolerant profile: an
+    # instance that reaches production without SPRING_PROFILES_ACTIVE being
+    # set will report itself as "local" on /api/v1/environment, which is
+    # obviously wrong and easy to spot. Defaulting to a real environment
+    # would let a misconfigured deployment look correct.
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
   application:
     name: cmn-service
 
   main:
     banner-mode: off
-
-  config:
-    # "vault://" with no path defers to spring.cloud.vault.kv below, which
-    # derives the paths from the active profile. Naming explicit paths here
-    # would reintroduce the per-environment coupling this layout removes.
-    import: vault://
 
   cloud:
     vault:
@@ -157,3 +173,27 @@ logging:
   level:
     root: INFO
     com.cmn.service: INFO
+
+# ============================================================
+# Vault import - every profile EXCEPT local
+#
+# "!local" is a Spring profile expression: this document is activated for
+# dev, staging, prod and anything else, but never for local.
+#
+# This is what makes the split the project asks for:
+#
+#   local          reads everything from application-local.yml, no Vault
+#   dev/staging/   reads everything from Vault
+#   prod
+#
+# "vault://" with no path defers to spring.cloud.vault.kv above, which
+# derives cmn/config/<profile> and cmn/secret/<profile> from the active
+# profile. Naming explicit paths here would reintroduce the per-environment
+# coupling this layout removes.
+# ============================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: "!local"
+    import: vault://

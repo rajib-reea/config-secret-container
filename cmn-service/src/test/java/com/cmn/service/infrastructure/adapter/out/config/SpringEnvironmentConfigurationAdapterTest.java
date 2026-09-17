@@ -150,8 +150,58 @@ class SpringEnvironmentConfigurationAdapterTest {
         StepVerifier.create(adapter(environment).findByKey("NOT_PRESENT")).verifyComplete();
     }
 
+    @Test
+    @DisplayName("local profile: everything in an included source is reported, no Vault needed")
+    void reportsEverythingFromAnIncludedSource() {
+        var environment = new StandardEnvironment();
+        environment.setActiveProfiles("local");
+        environment.getPropertySources().addFirst(new MapPropertySource(
+                "Config resource 'class path resource [application-local.yml]'",
+                Map.of(
+                        "POSTGRES_USER", "postgres",
+                        "POSTGRES_PASSWORD", "demo-postgres-password",
+                        "AUTH_ISSUER_URI", "http://localhost:9081")));
+
+        var adapter = new SpringEnvironmentConfigurationAdapter(
+                environment, INCLUDE_PREFIXES, List.of("application-local.yml"), VAULT_PREFIXES);
+
+        StepVerifier.create(adapter.loadAll().collectList())
+                .assertNext(entries -> {
+                    // None of these match an include prefix; they are reported
+                    // because the SOURCE is included.
+                    assertThat(entries).hasSize(3);
+                    assertThat(entries)
+                            .allSatisfy(e -> assertThat(e.origin())
+                                    .isEqualTo(ConfigurationOrigin.LOCAL_FILE));
+
+                    var secret = entries.stream()
+                            .filter(e -> e.key().value().equals("POSTGRES_PASSWORD"))
+                            .findFirst()
+                            .orElseThrow();
+
+                    // Masking is by key name, so it applies to file values too.
+                    assertThat(secret.sensitive()).isTrue();
+                    assertThat(secret.presentableValue()).isEqualTo("********");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("without include-sources, unprefixed file values stay out of the report")
+    void excludesUnprefixedFileValuesByDefault() {
+        var environment = new StandardEnvironment();
+        environment.setActiveProfiles("local");
+        environment.getPropertySources().addFirst(new MapPropertySource(
+                "Config resource 'class path resource [application-local.yml]'",
+                Map.of("POSTGRES_USER", "postgres")));
+
+        StepVerifier.create(adapter(environment).loadAll().collectList())
+                .assertNext(entries -> assertThat(entries).isEmpty())
+                .verifyComplete();
+    }
+
     private static SpringEnvironmentConfigurationAdapter adapter(StandardEnvironment environment) {
         return new SpringEnvironmentConfigurationAdapter(
-                environment, INCLUDE_PREFIXES, VAULT_PREFIXES);
+                environment, INCLUDE_PREFIXES, List.of(), VAULT_PREFIXES);
     }
 }

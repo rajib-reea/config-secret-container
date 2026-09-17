@@ -49,10 +49,14 @@ public class SecretsAvailabilityGuard implements InitializingBean {
         var environment = snapshot.environment();
 
         if (snapshot.satisfiesEnvironmentRequirements()) {
-            log.info("Configuration for '{}' resolved: {} values from Vault, {} secrets",
+            log.info("Configuration for '{}' resolved: {} values ({} from Vault, {} from files), "
+                            + "{} secrets",
                     environment.profile(),
+                    snapshot.entries().size(),
                     snapshot.countByOrigin().getOrDefault(
                             com.cmn.service.domain.model.ConfigurationOrigin.VAULT, 0L),
+                    snapshot.countByOrigin().getOrDefault(
+                            com.cmn.service.domain.model.ConfigurationOrigin.LOCAL_FILE, 0L),
                     snapshot.secretCount());
             return;
         }

@@ -1,11 +1,13 @@
 # cmn-service
 
 Reactive Spring Boot service whose configuration and secrets come from a
-**HashiCorp Vault-compatible** secret store.
+**HashiCorp Vault-compatible** secret store — except on `local`, which is
+entirely self-contained.
 
 * **Spring Boot 4.1.1** on **JDK 25**, **WebFlux** (Netty, functional routing)
 * **Hexagonal architecture** — the domain and application layers contain no Spring
-* Configuration from Vault via Spring Cloud Vault, resolved per profile
+* `local` reads everything from `application-local.yml`; `dev`, `staging` and
+  `prod` read everything from Vault
 
 ## OpenBao or HashiCorp Vault
 
@@ -27,14 +29,24 @@ Exactly one thing genuinely differs between the two — the health indicator. Se
 
 ## Quick start
 
+### local — nothing else required
+
+`local` is self-contained. No OpenBao, no token, no network:
+
 ```bash
-# 1. The store, populated
+mvn spring-boot:run          # local is the default profile
+```
+
+### dev / staging / prod — Vault required
+
+```bash
+# 1. Start and populate the store
 cd ../openbao && ./bao-up.sh --migrate
 
 # 2. The service
 cd ../cmn-service
 VAULT_TOKEN="$(cd ../openbao && ./bao-token.sh)" \
-  mvn spring-boot:run -Dspring-boot.run.profiles=local
+  mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 Or the whole stack in Docker:
@@ -107,27 +119,97 @@ synchronous would force the adapter to block, defeating WebFlux.
 
 ## Configuration
 
-Only two files:
+**Where values come from depends entirely on the profile:**
+
+| Profile | Source | Vault |
+| --- | --- | --- |
+| `local` | **`application-local.yml`** — every value | **not used at all** |
+| `dev` / `staging` / `prod` | **Vault** — every value | required |
+
+Only two files exist:
 
 | File | Contents |
 | --- | --- |
-| `application.yml` | Common settings and how to reach Vault |
-| `application-local.yml` | Developer-machine overrides |
+| `application.yml` | Shared settings, the active profile, and how to reach Vault |
+| `application-local.yml` | The complete local configuration — all 61 values |
 
-There is **no** `application-dev.yml`, `-staging.yml` or `-prod.yml`. Everything
-environment-specific lives in the store:
+There is **no** `application-dev.yml`, `-staging.yml` or `-prod.yml`. Those
+environments take everything from the store:
 
 ```text
 cmn/config/<profile>    non-secret configuration
 cmn/secret/<profile>    secrets
 ```
 
-Those paths are derived from the active profile by Spring Cloud Vault itself:
+### How the split is enforced
+
+Two independent mechanisms, so neither alone can leak the wrong source in:
+
+```yaml
+# application.yml - the vault import is activated for every profile but local
+---
+spring:
+  config:
+    activate:
+      on-profile: "!local"
+    import: vault://
+```
+
+```yaml
+# application-local.yml - and the client is switched off outright
+spring:
+  cloud:
+    vault:
+      enabled: false
+```
+
+The practical effect: `local` starts on a laptop with **no OpenBao running, no
+token, and no network**. Verified — with the store stopped entirely:
+
+```text
+local   71 values (0 from Vault, 71 from files), 20 secrets   -> starts
+dev     no credentials, no store                              -> exits 1
+```
+
+And with the store running:
+
+```text
+dev     67 values (61 from Vault, 6 from files), 20 secrets
+```
+
+Those 6 file values on `dev` are `cmn.*` and `spring.application.*` service
+settings — no business configuration. Every business value comes from Vault.
+
+### The active profile
+
+Set in `application.yml`:
 
 ```yaml
 spring:
-  config:
-    import: vault://          # no path - defers to the kv settings below
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+```
+
+Override without editing the file — both outrank it in Spring's precedence
+order:
+
+```bash
+SPRING_PROFILES_ACTIVE=prod java -jar cmn-service.jar
+java -jar cmn-service.jar --spring.profiles.active=staging
+```
+
+The default is deliberately `local`, the self-contained profile. An instance
+that reaches production without `SPRING_PROFILES_ACTIVE` set reports itself as
+`local` on `/api/v1/environment` — obviously wrong and easy to spot. Defaulting
+to a real environment would let a misconfigured deployment look correct.
+
+### How the Vault paths are derived
+
+On the non-local profiles, the paths come from the active profile — Spring
+Cloud Vault builds them, so no path is hardcoded per environment:
+
+```yaml
+spring:
   cloud:
     vault:
       kv:
@@ -152,7 +234,7 @@ without knowing which environment it is.
 
 | Profile | Vault | Secrets required | Notes |
 | --- | --- | --- | --- |
-| `local` | optional | no | Falls back to the `dev` documents, debug logging, `env`/`configprops` exposed |
+| `local` | **not used** | no | All values from `application-local.yml`; debug logging, `env`/`configprops` exposed |
 | `dev` | required | no | |
 | `staging` | required | **yes** | |
 | `prod` | required | **yes** | AppRole auth, never a root token |
@@ -163,8 +245,8 @@ without knowing which environment it is.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SPRING_PROFILES_ACTIVE` | *(none)* | Required |
-| `VAULT_ADDR` | `http://localhost:8200` | Vault/OpenBao URL (`BAO_ADDR` also accepted) |
+| `SPRING_PROFILES_ACTIVE` | `local` | `local`, `dev`, `staging` or `prod` |
+| `VAULT_ADDR` | `http://localhost:8200` | Vault/OpenBao URL. Unused on `local` (`BAO_ADDR` also accepted) |
 | `VAULT_AUTH` | `TOKEN` | `TOKEN` or `APPROLE` (`BAO_AUTH` also accepted) |
 | `VAULT_TOKEN` | — | For `TOKEN` auth (`BAO_TOKEN` also accepted) |
 | `VAULT_ROLE_ID` / `VAULT_SECRET_ID` | — | For `APPROLE` auth (`BAO_*` also accepted) |

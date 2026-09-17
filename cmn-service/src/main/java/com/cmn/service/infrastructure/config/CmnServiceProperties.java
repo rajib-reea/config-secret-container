@@ -13,7 +13,7 @@ public record CmnServiceProperties(Inspection inspection, Startup startup) {
 
     public CmnServiceProperties {
         if (inspection == null) {
-            inspection = new Inspection(List.of());
+            inspection = new Inspection(List.of(), List.of());
         }
         if (startup == null) {
             startup = new Startup(null);
@@ -36,11 +36,16 @@ public record CmnServiceProperties(Inspection inspection, Startup startup) {
      *                        not come from Vault. Values from Vault are always
      *                        reported; this keeps everything else out of the response
      *                        rather than dumping the JVM's entire property space.
+     * @param includeSources  property-source name fragments whose values are all
+     *                        reported, whatever they are called. The local profile
+     *                        uses this to surface everything application-local.yml
+     *                        defines, since on that profile nothing comes from Vault.
      */
-    public record Inspection(List<String> includePrefixes) {
+    public record Inspection(List<String> includePrefixes, List<String> includeSources) {
 
         public Inspection {
             includePrefixes = includePrefixes == null ? List.of() : List.copyOf(includePrefixes);
+            includeSources = includeSources == null ? List.of() : List.copyOf(includeSources);
         }
     }
 }

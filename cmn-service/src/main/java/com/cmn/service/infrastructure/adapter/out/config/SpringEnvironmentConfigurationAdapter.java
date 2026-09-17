@@ -49,19 +49,27 @@ public class SpringEnvironmentConfigurationAdapter implements ConfigurationSourc
 
     private final ConfigurableEnvironment environment;
     private final List<String> includePrefixes;
+    private final List<String> includeSources;
     private final List<String> vaultSourcePrefixes;
 
     /**
+     * @param includeSources      property-source name fragments whose values are all
+     *                            reported. The local profile names
+     *                            {@code application-local.yml} here, because on that
+     *                            profile nothing comes from Vault and the report would
+     *                            otherwise be almost empty
      * @param vaultSourcePrefixes property-source name prefixes that identify Vault,
-     *                              normally {@code ["cmn/"]} from
-     *                              {@code spring.cloud.vault.kv.backend}
+     *                            normally {@code ["cmn/"]} from
+     *                            {@code spring.cloud.vault.kv.backend}
      */
     public SpringEnvironmentConfigurationAdapter(
             ConfigurableEnvironment environment,
             List<String> includePrefixes,
+            List<String> includeSources,
             List<String> vaultSourcePrefixes) {
         this.environment = environment;
         this.includePrefixes = List.copyOf(includePrefixes);
+        this.includeSources = List.copyOf(includeSources);
         this.vaultSourcePrefixes = List.copyOf(vaultSourcePrefixes);
     }
 
@@ -103,6 +111,19 @@ public class SpringEnvironmentConfigurationAdapter implements ConfigurationSourc
             }
         }
 
+        // Names defined by an explicitly included source - on the local profile,
+        // everything application-local.yml declares. Collected the same way and
+        // for the same reason as vaultNames above: inclusion must not depend on
+        // which source ultimately won.
+        var includedSourceNames = new java.util.HashSet<String>();
+
+        for (PropertySource<?> source : environment.getPropertySources()) {
+            if (source instanceof EnumerablePropertySource<?> enumerable
+                    && matchesIncludedSource(enumerable.getName())) {
+                includedSourceNames.addAll(List.of(enumerable.getPropertyNames()));
+            }
+        }
+
         var entries = new ArrayList<ConfigurationEntry>();
         var seen = new java.util.HashSet<String>();
 
@@ -116,7 +137,7 @@ public class SpringEnvironmentConfigurationAdapter implements ConfigurationSourc
             var origin = originOf(enumerable.getName());
 
             for (String name : enumerable.getPropertyNames()) {
-                if (!included(name, vaultNames) || !seen.add(name)) {
+                if (!included(name, vaultNames, includedSourceNames) || !seen.add(name)) {
                     continue;
                 }
 
@@ -139,11 +160,17 @@ public class SpringEnvironmentConfigurationAdapter implements ConfigurationSourc
      * prefix, so the endpoint describes this service's configuration rather than
      * the JVM's entire property space.
      */
-    private boolean included(String name, java.util.Set<String> vaultNames) {
-        if (vaultNames.contains(name)) {
+    private boolean included(
+            String name, java.util.Set<String> vaultNames, java.util.Set<String> sourceNames) {
+        if (vaultNames.contains(name) || sourceNames.contains(name)) {
             return true;
         }
         return includePrefixes.stream().anyMatch(name::startsWith);
+    }
+
+    /** Whether a property source was explicitly named in {@code cmn.inspection.include-sources}. */
+    private boolean matchesIncludedSource(String sourceName) {
+        return includeSources.stream().anyMatch(sourceName::contains);
     }
 
     private ConfigurationOrigin originOf(String sourceName) {
